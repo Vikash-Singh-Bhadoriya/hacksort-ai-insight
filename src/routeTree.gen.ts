@@ -15,6 +15,7 @@ import { Route as JudgeLoginRouteImport } from './routes/judge-login'
 import { Route as OrganizerLoginRouteImport } from './routes/organizer-login'
 import { Route as ParticipantRouteImport } from './routes/participant'
 import { Route as JudgeIndexRouteImport } from './routes/judge.index'
+import { Route as JudgeAnalyticsRouteImport } from './routes/judge.analytics'
 import { Route as JudgeCompareRouteImport } from './routes/judge.compare'
 import { Route as JudgeEvaluationsRouteImport } from './routes/judge.evaluations'
 import { Route as JudgeGemsRouteImport } from './routes/judge.gems'
@@ -51,6 +52,11 @@ const ParticipantRoute = ParticipantRouteImport.update({
 const JudgeIndexRoute = JudgeIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => JudgeRoute,
+} as any)
+const JudgeAnalyticsRoute = JudgeAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => JudgeRoute,
 } as any)
 const JudgeCompareRoute = JudgeCompareRouteImport.update({
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/judge-login': typeof JudgeLoginRoute
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
+  '/judge/analytics': typeof JudgeAnalyticsRoute
   '/judge/compare': typeof JudgeCompareRoute
   '/judge/evaluations': typeof JudgeEvaluationsRoute
   '/judge/gems': typeof JudgeGemsRoute
@@ -109,6 +116,7 @@ export interface FileRoutesByTo {
   '/judge-login': typeof JudgeLoginRoute
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
+  '/judge/analytics': typeof JudgeAnalyticsRoute
   '/judge/compare': typeof JudgeCompareRoute
   '/judge/evaluations': typeof JudgeEvaluationsRoute
   '/judge/gems': typeof JudgeGemsRoute
@@ -125,6 +133,7 @@ export interface FileRoutesById {
   '/judge-login': typeof JudgeLoginRoute
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
+  '/judge/analytics': typeof JudgeAnalyticsRoute
   '/judge/compare': typeof JudgeCompareRoute
   '/judge/evaluations': typeof JudgeEvaluationsRoute
   '/judge/gems': typeof JudgeGemsRoute
@@ -142,6 +151,7 @@ export interface FileRouteTypes {
     | '/judge-login'
     | '/organizer-login'
     | '/participant'
+    | '/judge/analytics'
     | '/judge/compare'
     | '/judge/evaluations'
     | '/judge/gems'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/judge-login'
     | '/organizer-login'
     | '/participant'
+    | '/judge/analytics'
     | '/judge/compare'
     | '/judge/evaluations'
     | '/judge/gems'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/judge-login'
     | '/organizer-login'
     | '/participant'
+    | '/judge/analytics'
     | '/judge/compare'
     | '/judge/evaluations'
     | '/judge/gems'
@@ -233,6 +245,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JudgeIndexRouteImport
       parentRoute: typeof JudgeRoute
     }
+    '/judge/analytics': {
+      id: '/judge/analytics'
+      path: '/analytics'
+      fullPath: '/judge/analytics'
+      preLoaderRoute: typeof JudgeAnalyticsRouteImport
+      parentRoute: typeof JudgeRoute
+    }
     '/judge/compare': {
       id: '/judge/compare'
       path: '/compare'
@@ -286,6 +305,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface JudgeRouteChildren {
+  JudgeAnalyticsRoute: typeof JudgeAnalyticsRoute
   JudgeCompareRoute: typeof JudgeCompareRoute
   JudgeEvaluationsRoute: typeof JudgeEvaluationsRoute
   JudgeGemsRoute: typeof JudgeGemsRoute
@@ -297,6 +317,7 @@ interface JudgeRouteChildren {
 }
 
 const JudgeRouteChildren: JudgeRouteChildren = {
+  JudgeAnalyticsRoute: JudgeAnalyticsRoute,
   JudgeCompareRoute: JudgeCompareRoute,
   JudgeEvaluationsRoute: JudgeEvaluationsRoute,
   JudgeGemsRoute: JudgeGemsRoute,
