@@ -14,6 +14,8 @@ import { Route as JudgeRouteImport } from './routes/judge'
 import { Route as JudgeLoginRouteImport } from './routes/judge-login'
 import { Route as OrganizerLoginRouteImport } from './routes/organizer-login'
 import { Route as ParticipantRouteImport } from './routes/participant'
+import { Route as JudgeIndexRouteImport } from './routes/judge.index'
+import { Route as JudgeSubmissionsIndexRouteImport } from './routes/judge.submissions.index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,35 +42,62 @@ const ParticipantRoute = ParticipantRouteImport.update({
   path: '/participant',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JudgeIndexRoute = JudgeIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => JudgeRoute,
+} as any)
+const JudgeSubmissionsIndexRoute = JudgeSubmissionsIndexRouteImport.update({
+  id: '/submissions/',
+  path: '/submissions/',
+  getParentRoute: () => JudgeRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/judge': typeof JudgeRoute
+  '/judge': typeof JudgeRouteWithChildren
   '/judge-login': typeof JudgeLoginRoute
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
+  '/judge/': typeof JudgeIndexRoute
+  '/judge/submissions/': typeof JudgeSubmissionsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/judge': typeof JudgeRoute
   '/judge-login': typeof JudgeLoginRoute
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
+  '/judge': typeof JudgeIndexRoute
+  '/judge/submissions': typeof JudgeSubmissionsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/judge': typeof JudgeRoute
+  '/judge': typeof JudgeRouteWithChildren
   '/judge-login': typeof JudgeLoginRoute
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
+  '/judge/': typeof JudgeIndexRoute
+  '/judge/submissions/': typeof JudgeSubmissionsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/judge' | '/judge-login' | '/organizer-login' | '/participant'
+    | '/'
+    | '/judge'
+    | '/judge-login'
+    | '/organizer-login'
+    | '/participant'
+    | '/judge/'
+    | '/judge/submissions/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/judge' | '/judge-login' | '/organizer-login' | '/participant'
+  to:
+    | '/'
+    | '/judge-login'
+    | '/organizer-login'
+    | '/participant'
+    | '/judge'
+    | '/judge/submissions'
   id:
     | '__root__'
     | '/'
@@ -76,11 +105,13 @@ export interface FileRouteTypes {
     | '/judge-login'
     | '/organizer-login'
     | '/participant'
+    | '/judge/'
+    | '/judge/submissions/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  JudgeRoute: typeof JudgeRoute
+  JudgeRoute: typeof JudgeRouteWithChildren
   JudgeLoginRoute: typeof JudgeLoginRoute
   OrganizerLoginRoute: typeof OrganizerLoginRoute
   ParticipantRoute: typeof ParticipantRoute
@@ -123,12 +154,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ParticipantRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/judge/': {
+      id: '/judge/'
+      path: '/'
+      fullPath: '/judge/'
+      preLoaderRoute: typeof JudgeIndexRouteImport
+      parentRoute: typeof JudgeRoute
+    }
+    '/judge/submissions/': {
+      id: '/judge/submissions/'
+      path: '/submissions'
+      fullPath: '/judge/submissions/'
+      preLoaderRoute: typeof JudgeSubmissionsIndexRouteImport
+      parentRoute: typeof JudgeRoute
+    }
   }
 }
 
+interface JudgeRouteChildren {
+  JudgeIndexRoute: typeof JudgeIndexRoute
+  JudgeSubmissionsIndexRoute: typeof JudgeSubmissionsIndexRoute
+}
+
+const JudgeRouteChildren: JudgeRouteChildren = {
+  JudgeIndexRoute: JudgeIndexRoute,
+  JudgeSubmissionsIndexRoute: JudgeSubmissionsIndexRoute,
+}
+
+const JudgeRouteWithChildren = JudgeRoute._addFileChildren(JudgeRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  JudgeRoute: JudgeRoute,
+  JudgeRoute: JudgeRouteWithChildren,
   JudgeLoginRoute: JudgeLoginRoute,
   OrganizerLoginRoute: OrganizerLoginRoute,
   ParticipantRoute: ParticipantRoute,
