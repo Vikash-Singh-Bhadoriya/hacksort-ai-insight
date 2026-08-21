@@ -15,7 +15,10 @@ import { Route as JudgeLoginRouteImport } from './routes/judge-login'
 import { Route as OrganizerLoginRouteImport } from './routes/organizer-login'
 import { Route as ParticipantRouteImport } from './routes/participant'
 import { Route as JudgeIndexRouteImport } from './routes/judge.index'
+import { Route as JudgeClustersIndexRouteImport } from './routes/judge.clusters.index'
+import { Route as JudgeClustersIdRouteImport } from './routes/judge.clusters.$id'
 import { Route as JudgeSubmissionsIndexRouteImport } from './routes/judge.submissions.index'
+import { Route as JudgeSubmissionsIdRouteImport } from './routes/judge.submissions.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -47,9 +50,24 @@ const JudgeIndexRoute = JudgeIndexRouteImport.update({
   path: '/',
   getParentRoute: () => JudgeRoute,
 } as any)
+const JudgeClustersIndexRoute = JudgeClustersIndexRouteImport.update({
+  id: '/clusters/',
+  path: '/clusters/',
+  getParentRoute: () => JudgeRoute,
+} as any)
+const JudgeClustersIdRoute = JudgeClustersIdRouteImport.update({
+  id: '/clusters/$id',
+  path: '/clusters/$id',
+  getParentRoute: () => JudgeRoute,
+} as any)
 const JudgeSubmissionsIndexRoute = JudgeSubmissionsIndexRouteImport.update({
   id: '/submissions/',
   path: '/submissions/',
+  getParentRoute: () => JudgeRoute,
+} as any)
+const JudgeSubmissionsIdRoute = JudgeSubmissionsIdRouteImport.update({
+  id: '/submissions/$id',
+  path: '/submissions/$id',
   getParentRoute: () => JudgeRoute,
 } as any)
 
@@ -60,6 +78,9 @@ export interface FileRoutesByFullPath {
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
   '/judge/': typeof JudgeIndexRoute
+  '/judge/clusters/$id': typeof JudgeClustersIdRoute
+  '/judge/submissions/$id': typeof JudgeSubmissionsIdRoute
+  '/judge/clusters/': typeof JudgeClustersIndexRoute
   '/judge/submissions/': typeof JudgeSubmissionsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -68,6 +89,9 @@ export interface FileRoutesByTo {
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
   '/judge': typeof JudgeIndexRoute
+  '/judge/clusters/$id': typeof JudgeClustersIdRoute
+  '/judge/submissions/$id': typeof JudgeSubmissionsIdRoute
+  '/judge/clusters': typeof JudgeClustersIndexRoute
   '/judge/submissions': typeof JudgeSubmissionsIndexRoute
 }
 export interface FileRoutesById {
@@ -78,6 +102,9 @@ export interface FileRoutesById {
   '/organizer-login': typeof OrganizerLoginRoute
   '/participant': typeof ParticipantRoute
   '/judge/': typeof JudgeIndexRoute
+  '/judge/clusters/$id': typeof JudgeClustersIdRoute
+  '/judge/submissions/$id': typeof JudgeSubmissionsIdRoute
+  '/judge/clusters/': typeof JudgeClustersIndexRoute
   '/judge/submissions/': typeof JudgeSubmissionsIndexRoute
 }
 export interface FileRouteTypes {
@@ -89,6 +116,9 @@ export interface FileRouteTypes {
     | '/organizer-login'
     | '/participant'
     | '/judge/'
+    | '/judge/clusters/$id'
+    | '/judge/submissions/$id'
+    | '/judge/clusters/'
     | '/judge/submissions/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -97,6 +127,9 @@ export interface FileRouteTypes {
     | '/organizer-login'
     | '/participant'
     | '/judge'
+    | '/judge/clusters/$id'
+    | '/judge/submissions/$id'
+    | '/judge/clusters'
     | '/judge/submissions'
   id:
     | '__root__'
@@ -106,6 +139,9 @@ export interface FileRouteTypes {
     | '/organizer-login'
     | '/participant'
     | '/judge/'
+    | '/judge/clusters/$id'
+    | '/judge/submissions/$id'
+    | '/judge/clusters/'
     | '/judge/submissions/'
   fileRoutesById: FileRoutesById
 }
@@ -161,6 +197,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JudgeIndexRouteImport
       parentRoute: typeof JudgeRoute
     }
+    '/judge/clusters/': {
+      id: '/judge/clusters/'
+      path: '/clusters'
+      fullPath: '/judge/clusters/'
+      preLoaderRoute: typeof JudgeClustersIndexRouteImport
+      parentRoute: typeof JudgeRoute
+    }
+    '/judge/clusters/$id': {
+      id: '/judge/clusters/$id'
+      path: '/clusters/$id'
+      fullPath: '/judge/clusters/$id'
+      preLoaderRoute: typeof JudgeClustersIdRouteImport
+      parentRoute: typeof JudgeRoute
+    }
     '/judge/submissions/': {
       id: '/judge/submissions/'
       path: '/submissions'
@@ -168,16 +218,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JudgeSubmissionsIndexRouteImport
       parentRoute: typeof JudgeRoute
     }
+    '/judge/submissions/$id': {
+      id: '/judge/submissions/$id'
+      path: '/submissions/$id'
+      fullPath: '/judge/submissions/$id'
+      preLoaderRoute: typeof JudgeSubmissionsIdRouteImport
+      parentRoute: typeof JudgeRoute
+    }
   }
 }
 
 interface JudgeRouteChildren {
   JudgeIndexRoute: typeof JudgeIndexRoute
+  JudgeClustersIdRoute: typeof JudgeClustersIdRoute
+  JudgeSubmissionsIdRoute: typeof JudgeSubmissionsIdRoute
+  JudgeClustersIndexRoute: typeof JudgeClustersIndexRoute
   JudgeSubmissionsIndexRoute: typeof JudgeSubmissionsIndexRoute
 }
 
 const JudgeRouteChildren: JudgeRouteChildren = {
   JudgeIndexRoute: JudgeIndexRoute,
+  JudgeClustersIdRoute: JudgeClustersIdRoute,
+  JudgeSubmissionsIdRoute: JudgeSubmissionsIdRoute,
+  JudgeClustersIndexRoute: JudgeClustersIndexRoute,
   JudgeSubmissionsIndexRoute: JudgeSubmissionsIndexRoute,
 }
 
