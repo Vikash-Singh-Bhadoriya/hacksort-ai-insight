@@ -1,11 +1,11 @@
-import { Link, useNavigate, type LinkProps } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 import { Brand } from "./Brand";
 import { Button } from "@/components/ui/button";
 import { useStore, type Role } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export type NavItem = { label: string; to: LinkProps["to"]; icon: React.ComponentType<{ className?: string }> };
+export type NavItem = { label: string; to: string; icon: React.ComponentType<{ className?: string }> };
 
 export function WorkspaceShell({
   role,
