@@ -10,33 +10,53 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as JudgeLoginRouteImport } from './routes/judge-login'
+import { Route as OrganizerLoginRouteImport } from './routes/organizer-login'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JudgeLoginRoute = JudgeLoginRouteImport.update({
+  id: '/judge-login',
+  path: '/judge-login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrganizerLoginRoute = OrganizerLoginRouteImport.update({
+  id: '/organizer-login',
+  path: '/organizer-login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/judge-login': typeof JudgeLoginRoute
+  '/organizer-login': typeof OrganizerLoginRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/judge-login': typeof JudgeLoginRoute
+  '/organizer-login': typeof OrganizerLoginRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/judge-login': typeof JudgeLoginRoute
+  '/organizer-login': typeof OrganizerLoginRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/judge-login' | '/organizer-login'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/judge-login' | '/organizer-login'
+  id: '__root__' | '/' | '/judge-login' | '/organizer-login'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  JudgeLoginRoute: typeof JudgeLoginRoute
+  OrganizerLoginRoute: typeof OrganizerLoginRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +68,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/judge-login': {
+      id: '/judge-login'
+      path: '/judge-login'
+      fullPath: '/judge-login'
+      preLoaderRoute: typeof JudgeLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/organizer-login': {
+      id: '/organizer-login'
+      path: '/organizer-login'
+      fullPath: '/organizer-login'
+      preLoaderRoute: typeof OrganizerLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  JudgeLoginRoute: JudgeLoginRoute,
+  OrganizerLoginRoute: OrganizerLoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
