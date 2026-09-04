@@ -7,7 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CATEGORIES, JUDGES } from "@/lib/data";
 
 export const Route = createFileRoute("/organizer/judges")({
@@ -17,13 +23,18 @@ export const Route = createFileRoute("/organizer/judges")({
 function JudgesPage() {
   const [judges, setJudges] = useState(JUDGES);
   const [name, setName] = useState("");
-  const [track, setTrack] = useState<string>(CATEGORIES[0]);
+  const [track, setTrack] = useState<string>(CATEGORIES[0] ?? "Agriculture");
 
   const invite = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    setJudges((prev) => [...prev, { name: name.trim(), track, reviewed: 0, assigned: 24, active: "just now" }]);
-    toast.success("Judge invited", { description: `${name.trim()} was added to the ${track} track.` });
+    setJudges((prev) => [
+      ...prev,
+      { name: name.trim(), track, reviewed: 0, assigned: 24, active: "just now" },
+    ]);
+    toast.success("Judge invited", {
+      description: `${name.trim()} was added to the ${track} track.`,
+    });
     setName("");
   };
 
@@ -50,7 +61,9 @@ function JudgesPage() {
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <Progress className="h-1.5 w-28" value={(j.reviewed / j.assigned) * 100} />
-                      <span className="tabular-nums text-xs text-muted-foreground">{j.reviewed}/{j.assigned}</span>
+                      <span className="tabular-nums text-xs text-muted-foreground">
+                        {j.reviewed}/{j.assigned}
+                      </span>
                     </div>
                   </td>
                   <td className="p-4 text-muted-foreground">{j.active}</td>
@@ -61,19 +74,30 @@ function JudgesPage() {
         </div>
 
         <form onSubmit={invite} className="glass h-fit rounded-2xl p-6">
-          <h2 className="text-sm font-medium uppercase tracking-[0.14em] text-muted-foreground">Invite a judge</h2>
+          <h2 className="text-sm font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Invite a judge
+          </h2>
           <div className="mt-5 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="jname">Full name</Label>
-              <Input id="jname" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dr. Leila Hassan" />
+              <Input
+                id="jname"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Dr. Leila Hassan"
+              />
             </div>
             <div className="space-y-2">
               <Label>Track</Label>
               <Select value={track} onValueChange={setTrack}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

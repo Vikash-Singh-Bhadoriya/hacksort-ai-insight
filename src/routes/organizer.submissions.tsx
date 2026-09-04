@@ -6,7 +6,13 @@ import { PageHeader } from "@/components/WorkspaceShell";
 import { GemBadge } from "@/components/ScoreBits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useStore } from "@/lib/store";
 import { CATEGORIES, isHiddenGem, overallSignal } from "@/lib/data";
 
@@ -23,7 +29,9 @@ function OrgSubmissions() {
     () =>
       submissions
         .filter((s) => (cat === "all" ? true : s.category === cat))
-        .filter((s) => (q.trim() ? `${s.name} ${s.team}`.toLowerCase().includes(q.trim().toLowerCase()) : true))
+        .filter((s) =>
+          q.trim() ? `${s.name} ${s.team}`.toLowerCase().includes(q.trim().toLowerCase()) : true,
+        )
         .sort((a, b) => overallSignal(b.scores) - overallSignal(a.scores)),
     [submissions, q, cat],
   );
@@ -31,7 +39,15 @@ function OrgSubmissions() {
   const exportCsv = () => {
     const header = "Project,Team,Category,Signal,Status\n";
     const body = rows
-      .map((s) => [s.name, s.team, s.category, overallSignal(s.scores), evaluations[s.id]?.reviewed ? "Reviewed" : s.status].join(","))
+      .map((s) =>
+        [
+          s.name,
+          s.team,
+          s.category,
+          overallSignal(s.scores),
+          evaluations[s.id]?.reviewed ? "Reviewed" : s.status,
+        ].join(","),
+      )
       .join("\n");
     const url = URL.createObjectURL(new Blob([header + body], { type: "text/csv" }));
     const a = document.createElement("a");
@@ -57,14 +73,23 @@ function OrgSubmissions() {
       <div className="glass mb-5 flex flex-col gap-3 rounded-2xl p-4 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Search projects or teams…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input
+            className="pl-9"
+            placeholder="Search projects or teams…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
         <Select value={cat} onValueChange={setCat}>
-          <SelectTrigger className="sm:w-56"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="sm:w-56">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All categories</SelectItem>
             {CATEGORIES.map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -91,7 +116,9 @@ function OrgSubmissions() {
                 <td className="p-4 text-muted-foreground">{s.team}</td>
                 <td className="p-4 text-muted-foreground">{s.category}</td>
                 <td className="p-4 font-medium tabular-nums">{overallSignal(s.scores)}</td>
-                <td className="p-4 text-muted-foreground">{evaluations[s.id]?.reviewed ? "Reviewed" : s.status}</td>
+                <td className="p-4 text-muted-foreground">
+                  {evaluations[s.id]?.reviewed ? "Reviewed" : s.status}
+                </td>
               </tr>
             ))}
           </tbody>

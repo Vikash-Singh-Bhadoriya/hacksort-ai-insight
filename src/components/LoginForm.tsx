@@ -70,7 +70,9 @@ export function LoginForm({
             <Brand />
           </div>
           <h2 className="mt-6 font-display text-2xl font-semibold lg:mt-0">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in to continue to your workspace.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Sign in to continue to your workspace.
+          </p>
 
           <form className="mt-7 space-y-5" onSubmit={submit}>
             <div className="space-y-2">

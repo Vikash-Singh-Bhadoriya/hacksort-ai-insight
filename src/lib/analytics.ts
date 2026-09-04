@@ -44,6 +44,10 @@ export function gemCount(subs: Submission[]) {
 
 export function signalSpread(subs: Submission[]) {
   return subs
-    .map((s) => ({ name: s.name, signal: overallSignal(s.scores), presentation: s.scores.presentation }))
+    .map((s) => ({
+      name: s.name,
+      signal: overallSignal(s.scores),
+      presentation: s.scores.presentation,
+    }))
     .sort((a, b) => b.signal - a.signal);
 }

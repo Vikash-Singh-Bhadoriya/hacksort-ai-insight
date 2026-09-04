@@ -90,18 +90,54 @@ const steps = [
 ];
 
 const features = [
-  { icon: Layers, title: "Similarity clusters", body: "Thematic grouping with similarity percentages, shared technologies and cluster drill-down." },
-  { icon: Gem, title: "Hidden gem detection", body: "High innovation, impact and technical potential paired with low presentation quality gets flagged, not buried." },
-  { icon: GitCompare, title: "Side-by-side comparison", body: "Compare two to four projects across every axis with AI-generated comparison insights." },
-  { icon: Brain, title: "Explained scoring", body: "Every score comes with reasoning, strengths and risks in plain language — never a bare number." },
-  { icon: Workflow, title: "Structured evaluation", body: "Manual scoring, notes, reviewed state, shortlist and flags in one consistent workflow." },
-  { icon: LineChart, title: "Judging analytics", body: "Category saturation, innovation distribution, progress per judge and gem counts for organizers." },
+  {
+    icon: Layers,
+    title: "Similarity clusters",
+    body: "Thematic grouping with similarity percentages, shared technologies and cluster drill-down.",
+  },
+  {
+    icon: Gem,
+    title: "Hidden gem detection",
+    body: "High innovation, impact and technical potential paired with low presentation quality gets flagged, not buried.",
+  },
+  {
+    icon: GitCompare,
+    title: "Side-by-side comparison",
+    body: "Compare two to four projects across every axis with AI-generated comparison insights.",
+  },
+  {
+    icon: Brain,
+    title: "Explained scoring",
+    body: "Every score comes with reasoning, strengths and risks in plain language — never a bare number.",
+  },
+  {
+    icon: Workflow,
+    title: "Structured evaluation",
+    body: "Manual scoring, notes, reviewed state, shortlist and flags in one consistent workflow.",
+  },
+  {
+    icon: LineChart,
+    title: "Judging analytics",
+    body: "Category saturation, innovation distribution, progress per judge and gem counts for organizers.",
+  },
 ];
 
 const why = [
-  { stat: "4×", label: "faster first-pass triage", body: "Structured signals replace re-reading raw decks." },
-  { stat: "0", label: "auto-selected winners", body: "The platform recommends; the panel decides." },
-  { stat: "100%", label: "traceable reasoning", body: "Every recommendation is explained and auditable." },
+  {
+    stat: "4×",
+    label: "faster first-pass triage",
+    body: "Structured signals replace re-reading raw decks.",
+  },
+  {
+    stat: "0",
+    label: "auto-selected winners",
+    body: "The platform recommends; the panel decides.",
+  },
+  {
+    stat: "100%",
+    label: "traceable reasoning",
+    body: "Every recommendation is explained and auditable.",
+  },
 ];
 
 function Section({
@@ -121,7 +157,9 @@ function Section({
     <section id={id} className="mx-auto w-full max-w-7xl px-4 py-20 sm:px-6">
       <p className="text-xs font-medium uppercase tracking-[0.24em] text-primary">{eyebrow}</p>
       <h2 className="mt-3 max-w-3xl font-display text-3xl font-semibold sm:text-4xl">{title}</h2>
-      {lead ? <p className="mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground">{lead}</p> : null}
+      {lead ? (
+        <p className="mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground">{lead}</p>
+      ) : null}
       <div className="mt-10">{children}</div>
     </section>
   );
@@ -135,7 +173,8 @@ function Landing() {
       <section className="relative mx-auto w-full max-w-7xl px-4 pb-16 pt-20 sm:px-6 sm:pt-28">
         <div className="animate-rise max-w-3xl">
           <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/40 px-3 py-1 text-xs text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 text-primary" /> Human-in-the-loop judging intelligence
+            <ShieldCheck className="h-3.5 w-3.5 text-primary" /> Human-in-the-loop judging
+            intelligence
           </span>
           <h1 className="mt-6 font-display text-5xl font-semibold leading-[1.05] sm:text-7xl">
             HackSort <span className="text-gradient">AI</span>
@@ -144,7 +183,8 @@ function Landing() {
             “See beyond the submission.”
           </p>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-            AI-powered judging intelligence for faster, smarter and more structured hackathon evaluation.
+            AI-powered judging intelligence for faster, smarter and more structured hackathon
+            evaluation.
           </p>
           <p className="mt-8 max-w-2xl border-l-2 border-primary/50 pl-4 text-base italic text-foreground/80">
             Don't judge the pitch alone. Discover the potential behind it.
@@ -158,9 +198,15 @@ function Landing() {
             { k: "Hidden gems surfaced", v: "8" },
             { k: "Decisions automated", v: "0" },
           ].map((s, i) => (
-            <div key={s.k} className="glass glass-hover animate-rise rounded-2xl p-5" style={{ animationDelay: `${i * 80}ms` }}>
+            <div
+              key={s.k}
+              className="glass glass-hover animate-rise rounded-2xl p-5"
+              style={{ animationDelay: `${i * 80}ms` }}
+            >
               <p className="font-display text-3xl font-semibold tabular-nums">{s.v}</p>
-              <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">{s.k}</p>
+              <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                {s.k}
+              </p>
             </div>
           ))}
         </div>
@@ -191,7 +237,9 @@ function Landing() {
           {steps.map((s) => (
             <li key={s.title} className="glass glass-hover rounded-2xl p-6">
               <s.icon className="h-5 w-5 text-primary" />
-              <h3 className="mt-4 text-sm font-semibold uppercase tracking-[0.1em] text-foreground/90">{s.title}</h3>
+              <h3 className="mt-4 text-sm font-semibold uppercase tracking-[0.1em] text-foreground/90">
+                {s.title}
+              </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
             </li>
           ))}
@@ -255,9 +303,9 @@ function Landing() {
           ))}
         </div>
         <p className="mt-8 max-w-3xl text-base leading-relaxed text-muted-foreground">
-          A hackathon's credibility rests on whether the best work was actually seen. HackSort AI makes the
-          review path explicit: what was read, what was compared, what was flagged and why — so results can be
-          explained to participants, sponsors and the panel itself.
+          A hackathon's credibility rests on whether the best work was actually seen. HackSort AI
+          makes the review path explicit: what was read, what was compared, what was flagged and why
+          — so results can be explained to participants, sponsors and the panel itself.
         </p>
       </Section>
 
@@ -265,9 +313,15 @@ function Landing() {
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <p>HackSort AI — judging intelligence for hackathons.</p>
           <div className="flex gap-5">
-            <Link to="/participant" className="hover:text-foreground">Participant</Link>
-            <Link to="/judge-login" className="hover:text-foreground">Judge</Link>
-            <Link to="/organizer-login" className="hover:text-foreground">Organizer</Link>
+            <Link to="/participant" className="hover:text-foreground">
+              Participant
+            </Link>
+            <Link to="/judge-login" className="hover:text-foreground">
+              Judge
+            </Link>
+            <Link to="/organizer-login" className="hover:text-foreground">
+              Organizer
+            </Link>
           </div>
         </div>
       </footer>

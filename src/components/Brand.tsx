@@ -13,7 +13,9 @@ export function Brand({ to = "/", subtitle }: { to?: string; subtitle?: string }
           HackSort <span className="text-gradient">AI</span>
         </span>
         {subtitle ? (
-          <span className="block text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{subtitle}</span>
+          <span className="block text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            {subtitle}
+          </span>
         ) : null}
       </span>
     </Link>

@@ -31,15 +31,32 @@ function OrganizerHome() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Participants" value={participants} hint={`${submissions.length} teams registered`} icon={Users} />
-        <StatCard label="Submissions" value={submissions.length} hint={`${pct}% judged`} icon={ListChecks} />
-        <StatCard label="Clusters" value={CLUSTERS.length} hint="Semantic groupings" icon={Layers} />
+        <StatCard
+          label="Participants"
+          value={participants}
+          hint={`${submissions.length} teams registered`}
+          icon={Users}
+        />
+        <StatCard
+          label="Submissions"
+          value={submissions.length}
+          hint={`${pct}% judged`}
+          icon={ListChecks}
+        />
+        <StatCard
+          label="Clusters"
+          value={CLUSTERS.length}
+          hint="Semantic groupings"
+          icon={Layers}
+        />
         <StatCard label="Hidden gems" value={gems} hint="Flagged for extra review" icon={Gem} />
       </div>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-3">
         <div className="glass rounded-2xl p-6 lg:col-span-2">
-          <h2 className="text-sm font-medium uppercase tracking-[0.14em] text-muted-foreground">Judging progress</h2>
+          <h2 className="text-sm font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Judging progress
+          </h2>
           <div className="mt-5 space-y-4">
             {JUDGES.map((j) => (
               <div key={j.name}>
@@ -58,7 +75,9 @@ function OrganizerHome() {
         </div>
 
         <div className="glass rounded-2xl p-6">
-          <h2 className="text-sm font-medium uppercase tracking-[0.14em] text-muted-foreground">Timeline</h2>
+          <h2 className="text-sm font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Timeline
+          </h2>
           <ol className="mt-5 space-y-4">
             {HACKATHON.timeline.map((t) => (
               <li key={t.t} className="flex gap-3 text-sm">
@@ -76,10 +95,12 @@ function OrganizerHome() {
       <div className="mt-6">
         <AiNote>
           <p>
-            {submissions.length} submissions span {new Set(submissions.map((s) => s.category)).size} categories, with{" "}
-            {gems} projects showing strong substance behind weak presentation. Judging is {pct}% complete; the slowest
-            track is {[...JUDGES].sort((a, b) => a.reviewed / a.assigned - b.reviewed / b.assigned)[0].track}. Consider
-            reallocating reviewers before the results window.
+            {submissions.length} submissions span {new Set(submissions.map((s) => s.category)).size}{" "}
+            categories, with {gems} projects showing strong substance behind weak presentation.
+            Judging is {pct}% complete; the slowest track is{" "}
+            {[...JUDGES].sort((a, b) => a.reviewed / a.assigned - b.reviewed / b.assigned)[0]
+              ?.track ?? "undetermined"}
+            . Consider reallocating reviewers before the results window.
           </p>
         </AiNote>
       </div>

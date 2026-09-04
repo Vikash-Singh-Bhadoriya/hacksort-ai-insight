@@ -1,5 +1,13 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { BarChart3, LayoutDashboard, ListChecks, Tags, Trophy, Users, UserCheck } from "lucide-react";
+import {
+  BarChart3,
+  LayoutDashboard,
+  ListChecks,
+  Tags,
+  Trophy,
+  Users,
+  UserCheck,
+} from "lucide-react";
 import { WorkspaceShell, type NavItem } from "@/components/WorkspaceShell";
 
 const nav: NavItem[] = [
@@ -16,9 +24,15 @@ export const Route = createFileRoute("/organizer")({
   head: () => ({
     meta: [
       { title: "Organizer Workspace — HackSort AI" },
-      { name: "description", content: "Manage participants, judges, categories and results for your hackathon." },
+      {
+        name: "description",
+        content: "Manage participants, judges, categories and results for your hackathon.",
+      },
       { property: "og:title", content: "Organizer Workspace — HackSort AI" },
-      { property: "og:description", content: "Manage participants, judges, categories and results." },
+      {
+        property: "og:description",
+        content: "Manage participants, judges, categories and results.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

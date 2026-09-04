@@ -47,7 +47,7 @@ export function WaveBackground() {
       for (let l = 0; l < layers; l++) {
         const p = l / (layers - 1);
         const baseY = h * (0.55 + p * 0.16);
-        const amp = (h * 0.055) * (1 - p * 0.45);
+        const amp = h * 0.055 * (1 - p * 0.45);
         const speed = 0.00018 + l * 0.00006;
         const grad = ctx.createLinearGradient(0, baseY - amp, w, baseY + amp);
         grad.addColorStop(0, `rgba(84,126,255,${0.16 - p * 0.02})`);

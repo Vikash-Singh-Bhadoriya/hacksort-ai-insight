@@ -115,7 +115,14 @@ const s = (
   presentation: number,
 ): Scores => ({ innovation, impact, technical, feasibility, presentation });
 
-export const overallSignal = (sc: Scores) =>
+// Re-export scoring utilities so existing imports keep working
+export { DEFAULT_WEIGHTS, calculateCompositeScore, type JudgeWeights } from "./scoring";
+
+/**
+ * Legacy alias — uses DEFAULT_WEIGHTS.
+ * Prefer calculateCompositeScore(scores, weights) with explicit weights.
+ */
+export const overallSignal = (sc: Scores): number =>
   Math.round(
     sc.innovation * 0.28 +
       sc.impact * 0.26 +
@@ -127,8 +134,17 @@ export const overallSignal = (sc: Scores) =>
 export const isHiddenGem = (sc: Scores) =>
   sc.presentation <= 60 && (sc.innovation + sc.impact + sc.technical) / 3 >= 78;
 
-export const gemExplanation = (sub: Submission) =>
-  `Strong innovation (${sub.scores.innovation}) and real-world impact (${sub.scores.impact}) detected despite comparatively weak presentation quality (${sub.scores.presentation}). The underlying technical approach scores ${sub.scores.technical}, which places it above the median of the ${sub.category} track. Recommended for judge review.`;
+export const gemExplanation = (sub: Submission) => {
+  const strong: string[] = [];
+  if (sub.scores.innovation >= 80) strong.push(`innovation (${sub.scores.innovation})`);
+  if (sub.scores.impact >= 80) strong.push(`real-world impact (${sub.scores.impact})`);
+  if (sub.scores.technical >= 80) strong.push(`technical depth (${sub.scores.technical})`);
+  const strongStr =
+    strong.length > 0
+      ? strong.join(" and ")
+      : `underlying scores (innovation ${sub.scores.innovation}, impact ${sub.scores.impact}, technical ${sub.scores.technical})`;
+  return `Strong ${strongStr} detected despite comparatively weak presentation quality (${sub.scores.presentation}). The technical approach scores ${sub.scores.technical}, which places it above the median of the ${sub.category} track. Recommended for a second-look review — final decision remains with the judge.`;
+};
 
 export const SEED_SUBMISSIONS: Submission[] = [
   {
@@ -231,7 +247,10 @@ export const SEED_SUBMISSIONS: Submission[] = [
     scores: s(82, 86, 80, 71, 52),
     reasoning:
       "Ambiguity-flagging (rather than forced transcription) is the innovative choice here: the system refuses to guess and escalates instead. Presentation is a single static slide deck with no walkthrough, which understates the depth of the interaction-checking layer.",
-    strengths: ["Refuses low-confidence reads instead of guessing", "Real pharmacopoeia integration"],
+    strengths: [
+      "Refuses low-confidence reads instead of guessing",
+      "Real pharmacopoeia integration",
+    ],
     risks: ["Handwriting dataset is small", "No pilot partner identified"],
     cluster: "doc-intel",
     status: "Submitted",
@@ -282,7 +301,8 @@ export const SEED_SUBMISSIONS: Submission[] = [
     members: ["Ishaan T.", "Bea M.", "Cody W."],
     category: "Education",
     problem: "Teachers spend 8+ hours a week on formative assessment design.",
-    solution: "Curriculum-aligned question generator with difficulty calibration from past attempts.",
+    solution:
+      "Curriculum-aligned question generator with difficulty calibration from past attempts.",
     stack: ["Next.js", "LLM APIs", "Postgres", "Redis"],
     deckUrl: "https://slides.demo/gradegraph",
     scores: s(69, 75, 72, 86, 88),
@@ -376,7 +396,8 @@ export const SEED_SUBMISSIONS: Submission[] = [
     team: "Voltform",
     members: ["Peter L.", "Amara O."],
     category: "Environment",
-    problem: "Rooftop solar output is invisible to distribution operators until it destabilises feeders.",
+    problem:
+      "Rooftop solar output is invisible to distribution operators until it destabilises feeders.",
     solution: "Inverter-telemetry aggregation with feeder-level forecast for operators.",
     stack: ["Kafka", "TimescaleDB", "Python", "React"],
     deckUrl: "https://slides.demo/gridecho",
@@ -434,7 +455,8 @@ export const SEED_SUBMISSIONS: Submission[] = [
     members: ["Chen Y.", "Aisha B.", "Pablo R."],
     category: "AI/ML",
     problem: "Low-resource languages have no usable speech interfaces.",
-    solution: "Few-shot speech adaptation pipeline needing 30 minutes of recorded audio per dialect.",
+    solution:
+      "Few-shot speech adaptation pipeline needing 30 minutes of recorded audio per dialect.",
     stack: ["PyTorch", "Whisper", "Python", "ONNX"],
     deckUrl: "https://slides.demo/linguabridge",
     scores: s(90, 86, 88, 70, 74),
@@ -453,7 +475,8 @@ export const SEED_SUBMISSIONS: Submission[] = [
     members: ["Nora W.", "Ken T."],
     category: "AI/ML",
     problem: "RAG systems silently answer from stale or wrong-tenant documents.",
-    solution: "Provenance-enforcing retrieval layer that blocks answers without an eligible source.",
+    solution:
+      "Provenance-enforcing retrieval layer that blocks answers without an eligible source.",
     stack: ["Vector DB", "Python", "FastAPI", "Redis"],
     deckUrl: "https://slides.demo/contextguard",
     scores: s(83, 78, 85, 80, 59),
@@ -491,7 +514,8 @@ export const SEED_SUBMISSIONS: Submission[] = [
     members: ["Hugo V.", "Selin A."],
     category: "Social Impact",
     problem: "Tenants cannot parse eviction notices before deadlines expire.",
-    solution: "Notice parser that extracts deadlines and generates a jurisdiction-specific response.",
+    solution:
+      "Notice parser that extracts deadlines and generates a jurisdiction-specific response.",
     stack: ["OCR", "LLM APIs", "Next.js", "Postgres"],
     deckUrl: "https://slides.demo/rightsreader",
     scores: s(80, 89, 76, 79, 54),
@@ -601,10 +625,30 @@ export const SEED_SUBMISSIONS: Submission[] = [
 ];
 
 export const SIMILAR_PAIRS = [
-  { a: "s2", b: "s3", score: 91, why: "Shared satellite + soil inputs and near-identical rotation objectives." },
-  { a: "s16", b: "s21", score: 86, why: "Both build dialect speech adaptation on Whisper-derived pipelines." },
-  { a: "s5", b: "s19", score: 83, why: "Document parsing with confidence-gated escalation to a human." },
-  { a: "s10", b: "s14", score: 79, why: "Fraud detection via structural signals rather than content inspection." },
+  {
+    a: "s2",
+    b: "s3",
+    score: 91,
+    why: "Shared satellite + soil inputs and near-identical rotation objectives.",
+  },
+  {
+    a: "s16",
+    b: "s21",
+    score: 86,
+    why: "Both build dialect speech adaptation on Whisper-derived pipelines.",
+  },
+  {
+    a: "s5",
+    b: "s19",
+    score: 83,
+    why: "Document parsing with confidence-gated escalation to a human.",
+  },
+  {
+    a: "s10",
+    b: "s14",
+    score: 79,
+    why: "Fraud detection via structural signals rather than content inspection.",
+  },
   { a: "s7", b: "s8", score: 76, why: "Adaptive assessment loops targeting classroom teachers." },
 ];
 

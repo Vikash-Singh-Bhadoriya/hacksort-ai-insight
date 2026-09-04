@@ -1,11 +1,16 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 import { Brand } from "./Brand";
+import { DemoResetButton } from "./DemoReset";
 import { Button } from "@/components/ui/button";
 import { useStore, type Role } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-export type NavItem = { label: string; to: string; icon: React.ComponentType<{ className?: string }> };
+export type NavItem = {
+  label: string;
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+};
 
 export function WorkspaceShell({
   role,
@@ -24,7 +29,9 @@ export function WorkspaceShell({
   if (!hydrated) {
     return (
       <div className="grid min-h-screen place-items-center">
-        <div className="glass rounded-2xl px-8 py-6 text-sm text-muted-foreground">Loading workspace…</div>
+        <div className="glass rounded-2xl px-8 py-6 text-sm text-muted-foreground">
+          Loading workspace…
+        </div>
       </div>
     );
   }
@@ -38,7 +45,10 @@ export function WorkspaceShell({
           <p className="mt-2 text-sm text-muted-foreground">
             This {role} workspace is protected. Sign in with the demo account to continue.
           </p>
-          <Button className="mt-6" onClick={() => navigate({ to: role === "judge" ? "/judge-login" : "/organizer-login" })}>
+          <Button
+            className="mt-6"
+            onClick={() => navigate({ to: role === "judge" ? "/judge-login" : "/organizer-login" })}
+          >
             Go to {role} login
           </Button>
         </div>
@@ -82,6 +92,9 @@ export function WorkspaceShell({
           >
             <LogOut className="mr-2 h-4 w-4" /> Sign out
           </Button>
+          <div className="mt-2">
+            <DemoResetButton />
+          </div>
         </div>
       </aside>
       <main className="min-w-0 flex-1 px-4 py-8 sm:px-8">{children}</main>
@@ -89,7 +102,15 @@ export function WorkspaceShell({
   );
 }
 
-export function PageHeader({ title, lead, actions }: { title: string; lead?: string; actions?: React.ReactNode }) {
+export function PageHeader({
+  title,
+  lead,
+  actions,
+}: {
+  title: string;
+  lead?: string;
+  actions?: React.ReactNode;
+}) {
   return (
     <div className="animate-rise mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>

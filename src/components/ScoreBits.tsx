@@ -3,7 +3,13 @@ import { Sparkles } from "lucide-react";
 
 export function ScoreBar({ label, value }: { label: string; value: number }) {
   const tone =
-    value >= 85 ? "bg-success" : value >= 70 ? "bg-primary" : value >= 55 ? "bg-cyan" : "bg-warning";
+    value >= 85
+      ? "bg-success"
+      : value >= 70
+        ? "bg-primary"
+        : value >= 55
+          ? "bg-cyan"
+          : "bg-warning";
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
@@ -11,7 +17,10 @@ export function ScoreBar({ label, value }: { label: string; value: number }) {
         <span className="font-medium tabular-nums">{value}</span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary/70">
-        <div className={cn("h-full rounded-full transition-all duration-700", tone)} style={{ width: `${value}%` }} />
+        <div
+          className={cn("h-full rounded-full transition-all duration-700", tone)}
+          style={{ width: `${value}%` }}
+        />
       </div>
     </div>
   );

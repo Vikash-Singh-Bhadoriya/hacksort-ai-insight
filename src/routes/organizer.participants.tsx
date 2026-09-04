@@ -3,7 +3,13 @@ import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { PageHeader } from "@/components/WorkspaceShell";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useStore } from "@/lib/store";
 import { CATEGORIES } from "@/lib/data";
 
@@ -19,7 +25,15 @@ function ParticipantsPage() {
   const rows = useMemo(
     () =>
       submissions
-        .flatMap((s) => s.members.map((m) => ({ member: m, team: s.team, project: s.name, category: s.category, id: s.id })))
+        .flatMap((s) =>
+          s.members.map((m) => ({
+            member: m,
+            team: s.team,
+            project: s.name,
+            category: s.category,
+            id: s.id,
+          })),
+        )
         .filter((r) => (cat === "all" ? true : r.category === cat))
         .filter((r) =>
           q.trim()
@@ -31,19 +45,31 @@ function ParticipantsPage() {
 
   return (
     <div>
-      <PageHeader title="Participants" lead={`${rows.length} people across ${submissions.length} registered teams.`} />
+      <PageHeader
+        title="Participants"
+        lead={`${rows.length} people across ${submissions.length} registered teams.`}
+      />
 
       <div className="glass mb-5 flex flex-col gap-3 rounded-2xl p-4 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Search participants, teams or projects…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input
+            className="pl-9"
+            placeholder="Search participants, teams or projects…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
         <Select value={cat} onValueChange={setCat}>
-          <SelectTrigger className="sm:w-56"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="sm:w-56">
+            <SelectValue />
+          </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All categories</SelectItem>
             {CATEGORIES.map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -70,7 +96,9 @@ function ParticipantsPage() {
             ))}
             {!rows.length ? (
               <tr>
-                <td colSpan={4} className="p-10 text-center text-muted-foreground">No participants match that filter.</td>
+                <td colSpan={4} className="p-10 text-center text-muted-foreground">
+                  No participants match that filter.
+                </td>
               </tr>
             ) : null}
           </tbody>

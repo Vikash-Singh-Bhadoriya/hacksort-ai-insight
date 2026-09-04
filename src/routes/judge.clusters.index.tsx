@@ -27,18 +27,32 @@ function ClustersPage() {
             <div key={c.id} className="glass glass-hover flex flex-col rounded-2xl p-6">
               <div className="flex items-start justify-between">
                 <Layers className="h-5 w-5 text-violet" />
-                <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs text-primary tabular-nums">{c.similarity}% similar</span>
+                <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs text-primary tabular-nums">
+                  {c.similarity}% similar
+                </span>
               </div>
               <h3 className="mt-4 text-lg font-semibold">{c.name}</h3>
               <p className="mt-2 flex-1 text-sm text-muted-foreground">{c.summary}</p>
-              <p className="mt-4 text-sm"><span className="font-display text-2xl font-semibold tabular-nums">{items.length}</span> <span className="text-muted-foreground">projects</span></p>
+              <p className="mt-4 text-sm">
+                <span className="font-display text-2xl font-semibold tabular-nums">
+                  {items.length}
+                </span>{" "}
+                <span className="text-muted-foreground">projects</span>
+              </p>
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {c.tech.map((t) => (
-                  <span key={t} className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground">{t}</span>
+                  <span
+                    key={t}
+                    className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground"
+                  >
+                    {t}
+                  </span>
                 ))}
               </div>
               <Button asChild size="sm" className="mt-5">
-                <Link to="/judge/clusters/$id" params={{ id: c.id }}>View cluster</Link>
+                <Link to="/judge/clusters/$id" params={{ id: c.id }}>
+                  View cluster
+                </Link>
               </Button>
             </div>
           );
@@ -52,13 +66,27 @@ function ClustersPage() {
             <Link2 className="h-4 w-4 text-primary" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">
-                <Link to="/judge/submissions/$id" params={{ id: p.a }} className="hover:text-primary">{nameOf(p.a)}</Link>
+                <Link
+                  to="/judge/submissions/$id"
+                  params={{ id: p.a }}
+                  className="hover:text-primary"
+                >
+                  {nameOf(p.a)}
+                </Link>
                 <span className="text-muted-foreground"> ↔ </span>
-                <Link to="/judge/submissions/$id" params={{ id: p.b }} className="hover:text-primary">{nameOf(p.b)}</Link>
+                <Link
+                  to="/judge/submissions/$id"
+                  params={{ id: p.b }}
+                  className="hover:text-primary"
+                >
+                  {nameOf(p.b)}
+                </Link>
               </p>
               <p className="mt-1 text-sm text-muted-foreground">{p.why}</p>
             </div>
-            <span className="rounded-full bg-secondary/60 px-3 py-1 text-xs tabular-nums">{p.score}% match</span>
+            <span className="rounded-full bg-secondary/60 px-3 py-1 text-xs tabular-nums">
+              {p.score}% match
+            </span>
           </div>
         ))}
       </div>
