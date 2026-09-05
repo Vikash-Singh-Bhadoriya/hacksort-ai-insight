@@ -31,12 +31,31 @@ export type AnalyzeSuccess = {
 export type AnalyzeError = { ok: false; error: string; code: string };
 export type AnalyzeResult = AnalyzeSuccess | AnalyzeError;
 
-// ─── Extended request schema (adds submissionId for cache keying) ──────────
+// ─── Extended request schema ───────────────────────────────────────────────
+//
+// Includes submissionId + forceRefresh (persistence controls) and the full
+// submission fields needed to upsert a row into `submissions` before writing
+// to `gemini_analyses` (required for FK satisfaction).
+//
+// The `submissions` table is the FK parent of `gemini_analyses`. Seed
+// submissions (s1–s24) and participant submissions only exist in localStorage;
+// they have never been written to Supabase. The upsert here creates the parent
+// row on-demand the first time analysis is requested for any submission.
 
 const PersistentAnalyzeRequestSchema = AnalyzeRequestSchema.extend({
   submissionId: z.string().min(1).max(200),
   /** When true, skip the Supabase cache and always call Gemini. */
   forceRefresh: z.boolean().optional().default(false),
+  // Full submission fields for FK parent row upsert:
+  members: z.array(z.string()).default([]),
+  deckUrl: z.string().default(""),
+  scores: z.record(z.string(), z.number()).default({}),
+  reasoning: z.string().default(""),
+  strengths: z.array(z.string()).default([]),
+  risks: z.array(z.string()).default([]),
+  cluster: z.string().default(""),
+  status: z.string().default("Submitted"),
+  submittedAt: z.string().default(""),
 });
 
 type PersistentAnalyzeRequest = z.infer<typeof PersistentAnalyzeRequestSchema>;
@@ -89,24 +108,85 @@ async function getCachedAnalysis(
 
 /**
  * Persist a validated Gemini analysis.
- * Uses upsert on UNIQUE(submission_id) — safe to call repeatedly.
  *
+ * Before inserting into `gemini_analyses`, upserts the parent row in
+ * `submissions`. This satisfies the FK constraint for seed submissions
+ * (s1–s24) and participant submissions that exist in localStorage but have
+ * never been written to Supabase.
+ *
+ * Uses upsert on UNIQUE(submission_id) for analyses — safe to call repeatedly.
  * Logs a warning on failure but does NOT throw — a persistence failure must
  * not turn a successful Gemini result into an error for the user.
  */
 async function persistAnalysis(
-  submissionId: string,
+  submissionData: {
+    id: string;
+    name: string;
+    team: string;
+    members: string[];
+    category: string;
+    problem: string;
+    solution: string;
+    stack: string[];
+    deckUrl: string;
+    scores: Record<string, number>;
+    reasoning: string;
+    strengths: string[];
+    risks: string[];
+    cluster: string;
+    status: string;
+    submittedAt: string;
+  },
   analysis: GeminiAnalysis,
 ): Promise<void> {
   const db = createServiceClient();
   if (!db) {
-    console.warn("[api.analyze] Supabase not configured — analysis not persisted for", submissionId);
+    console.warn(
+      "[api.analyze] Supabase not configured — analysis not persisted for",
+      submissionData.id,
+    );
     return;
   }
 
-  const { error } = await db.from("gemini_analyses").upsert(
+  // Step A: upsert the parent submissions row.
+  // ON CONFLICT (id) DO UPDATE ensures idempotency — safe to call every time.
+  const { error: subErr } = await db.from("submissions").upsert(
     {
-      submission_id: submissionId,
+      id: submissionData.id,
+      name: submissionData.name,
+      team: submissionData.team,
+      members: submissionData.members,
+      category: submissionData.category,
+      problem: submissionData.problem,
+      solution: submissionData.solution,
+      stack: submissionData.stack,
+      deck_url: submissionData.deckUrl,
+      scores: submissionData.scores,
+      reasoning: submissionData.reasoning,
+      strengths: submissionData.strengths,
+      risks: submissionData.risks,
+      cluster: submissionData.cluster,
+      status: submissionData.status,
+      submitted_at: submissionData.submittedAt || new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+
+  if (subErr) {
+    console.warn(
+      "[api.analyze] Failed to upsert submission",
+      submissionData.id,
+      "—",
+      subErr.message,
+      "— analysis will not be persisted (FK would fail)",
+    );
+    return; // cannot safely insert gemini_analyses without a parent row
+  }
+
+  // Step B: upsert the analysis (FK parent row now guaranteed to exist).
+  const { error: anaErr } = await db.from("gemini_analyses").upsert(
+    {
+      submission_id: submissionData.id,
       summary: analysis.summary,
       reasoning: analysis.reasoning,
       strengths: analysis.strengths,
@@ -116,16 +196,15 @@ async function persistAnalysis(
     { onConflict: "submission_id" },
   );
 
-  if (error) {
-    // Log but do not throw — the caller already has a valid analysis to return
+  if (anaErr) {
     console.warn(
       "[api.analyze] Failed to persist analysis for",
-      submissionId,
+      submissionData.id,
       "—",
-      error.message,
+      anaErr.message,
     );
   } else {
-    console.log("[api.analyze] Analysis persisted for", submissionId);
+    console.log("[api.analyze] Analysis persisted for", submissionData.id);
   }
 }
 
@@ -153,7 +232,22 @@ export const analyzeSubmission = createServerFn({ method: "POST" })
     return parsed.data;
   })
   .handler(async ({ data }): Promise<AnalyzeResult> => {
-    const { submissionId, forceRefresh, ...geminiFields } = data;
+    const {
+      submissionId,
+      forceRefresh,
+      // Submission fields for FK parent row upsert (stripped from geminiFields)
+      members,
+      deckUrl,
+      scores,
+      reasoning,
+      strengths,
+      risks,
+      cluster,
+      status,
+      submittedAt,
+      // Remaining fields go to callGemini (name, team, category, problem, solution, stack)
+      ...geminiFields
+    } = data;
 
     // ── Step 1: Check cache (skipped when forceRefresh=true) ─────────────
     if (!forceRefresh) {
@@ -185,10 +279,30 @@ export const analyzeSubmission = createServerFn({ method: "POST" })
       return geminiResult; // propagate Gemini error unchanged
     }
 
-    // ── Step 3: Persist the validated result ─────────────────────────────
-    // persistAnalysis logs on failure but does not throw, so a DB write
-    // failure never masks a successful Gemini response.
-    await persistAnalysis(submissionId, geminiResult.analysis);
+    // ── Step 3: Persist submission + analysis ────────────────────────────
+    // persistAnalysis upserts the submissions row first (FK parent), then
+    // upserts gemini_analyses. Logs on failure but does not throw.
+    await persistAnalysis(
+      {
+        id: submissionId,
+        name: geminiFields.name,
+        team: geminiFields.team,
+        members,
+        category: geminiFields.category,
+        problem: geminiFields.problem,
+        solution: geminiFields.solution,
+        stack: geminiFields.stack,
+        deckUrl,
+        scores,
+        reasoning,
+        strengths,
+        risks,
+        cluster,
+        status,
+        submittedAt,
+      },
+      geminiResult.analysis,
+    );
 
     return { ok: true, analysis: geminiResult.analysis, cached: false };
   });

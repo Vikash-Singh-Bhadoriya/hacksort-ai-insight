@@ -134,12 +134,23 @@ function ProjectDetail() {
         data: {
           submissionId: sub.id,
           forceRefresh,
+          // Gemini input fields
           name: sub.name,
           team: sub.team,
           category: sub.category,
           problem: sub.problem,
           solution: sub.solution,
           stack: sub.stack,
+          // Full submission fields for FK parent row upsert in Supabase
+          members: sub.members,
+          deckUrl: sub.deckUrl,
+          scores: sub.scores,
+          reasoning: sub.reasoning,
+          strengths: sub.strengths,
+          risks: sub.risks,
+          cluster: sub.cluster,
+          status: sub.status,
+          submittedAt: sub.submittedAt,
         },
       });
       if (result.ok) {
