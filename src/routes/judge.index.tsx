@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ClipboardCheck, FileStack, Gem, Layers, Percent, Siren } from "lucide-react";
+import { ClipboardCheck, FileStack, Gem, Layers, Percent, Siren, Upload } from "lucide-react";
+import { CsvImportDialog } from "@/components/CsvImportDialog";
 import { PageHeader } from "@/components/WorkspaceShell";
 import { HumanLoopNote, StatCard } from "@/components/ScoreBits";
 import { SubmissionCard } from "@/components/SubmissionCard";
@@ -15,6 +17,7 @@ export const Route = createFileRoute("/judge/")({
 
 function JudgeDashboard() {
   const { submissions, evaluations, judgeWeights } = useStore();
+  const [importOpen, setImportOpen] = useState(false);
   const reviewed = submissions.filter((s) => evaluations[s.id]?.reviewed).length;
   const gems = submissions.filter((s) => isHiddenGem(s.scores));
   const highPriority = submissions.filter((s) => overallSignal(s.scores) >= 82);
@@ -36,6 +39,12 @@ function JudgeDashboard() {
       <PageHeader
         title="Judge Dashboard"
         lead="A structured view of the pool: what is urgent, what is duplicated and what deserves a second look."
+        actions={
+          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import CSV
+          </Button>
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -124,6 +133,8 @@ function JudgeDashboard() {
           ))}
         </div>
       )}
+
+      <CsvImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
