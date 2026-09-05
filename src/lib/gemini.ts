@@ -9,6 +9,31 @@
 
 import { z } from "zod";
 
+// ─── Module-level client singleton ────────────────────────────────────────────
+//
+// GoogleGenAI is instantiated once per serverless instance lifetime rather than
+// on every request. The lazy import stays inside getGenAIClient() to prevent
+// the SDK from ever being included in the client bundle.
+//
+// On cold starts this saves the repeated dynamic-import resolution overhead
+// (~200–800ms). On warm invocations it is effectively free either way, but
+// skipping repeated `new GoogleGenAI()` calls is good hygiene.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _genaiClient: any = null;
+let _genaiInitKey: string | null = null; // detect key rotation between restarts
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getGenAIClient(apiKey: string): Promise<any> {
+  if (_genaiClient && _genaiInitKey === apiKey) return _genaiClient;
+  // @ts-ignore — @google/genai is in package.json and resolved by bun/Vite at build time
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  const { GoogleGenAI } = await import("@google/genai");
+  _genaiClient = new GoogleGenAI({ apiKey });
+  _genaiInitKey = apiKey;
+  return _genaiClient;
+}
+
 // ─── Shared Zod Schemas ────────────────────────────────────────────────────
 
 /**
@@ -127,6 +152,8 @@ Return a single JSON object with exactly these fields:
 export async function callGemini(
   req: AnalyzeRequest,
 ): Promise<{ ok: true; analysis: GeminiAnalysis } | { ok: false; error: string; code: string }> {
+  const t0 = Date.now();
+
   const apiKey = process.env["GEMINI_API_KEY"];
 
   if (!apiKey || apiKey.trim() === "") {
@@ -137,14 +164,43 @@ export async function callGemini(
     };
   }
 
-  // Lazy-import the SDK so it is never bundled into client code
-  const { GoogleGenAI } = await import("@google/genai");
-  const genai = new GoogleGenAI({ apiKey });
+  // ── Client init (singleton — fast on warm instances) ──────────────────────
+  const t1 = Date.now();
+  const genai = await getGenAIClient(apiKey);
+  const t2 = Date.now();
 
   const prompt = buildPrompt(req);
+  const t3 = Date.now();
+
+  console.log(
+    `[gemini] request started — client init: ${t2 - t1}ms, prompt build: ${t3 - t2}ms, prompt chars: ${prompt.length}`,
+  );
+
+  // ── Gemini API call ────────────────────────────────────────────────────────
+  //
+  // maxOutputTokens: set to 2500.
+  //
+  // Token measurement (measure_tokens.mjs, 2026-09-05) showed:
+  //   • Typical realistic response  : ~484 tokens  (1691 chars)
+  //   • Worst case (Zod schema max) : ~2172 tokens (7599 chars)
+  //
+  // The previous value of 2048 was BELOW the worst-case schema maximum and
+  // therefore risked silently truncating the JSON output for verbose responses,
+  // which would cause a JSON parse error or Zod validation failure.
+  //
+  // 2500 gives a ~15% headroom above the measured 2172-token worst case while
+  // staying well below 8192 (Flash context limit).
+  //
+  // NOTE: maxOutputTokens is a hard STOP cap, not a generation target. Latency
+  // is determined by how many tokens the model actually generates before EOS,
+  // not by this cap — unless the model would naturally exceed the cap (which
+  // the usageMetadata logs below will tell us).
 
   let rawText: string;
+  let usageMeta: { inputTokens?: number; outputTokens?: number } = {};
+
   try {
+    const t4 = Date.now();
     const response = await genai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: prompt,
@@ -152,9 +208,24 @@ export async function callGemini(
         // Request structured JSON output matching our schema
         responseMimeType: "application/json",
         temperature: 0.3, // Low temperature for more consistent scoring
-        maxOutputTokens: 2048,
+        maxOutputTokens: 2500,
       },
     });
+    const t5 = Date.now();
+
+    // Log actual token usage when the API provides it (available in most responses)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meta = (response as any).usageMetadata;
+    if (meta) {
+      usageMeta = {
+        inputTokens: meta.promptTokenCount ?? meta.inputTokenCount,
+        outputTokens: meta.candidatesTokenCount ?? meta.outputTokenCount,
+      };
+    }
+
+    console.log(
+      `[gemini] API call: ${t5 - t4}ms | tokens in: ${usageMeta.inputTokens ?? "?"} out: ${usageMeta.outputTokens ?? "?"} | total so far: ${t5 - t0}ms`,
+    );
 
     const text = response.text;
     if (!text) {
@@ -169,11 +240,20 @@ export async function callGemini(
     // Surface rate limiting and quota errors with a useful message
     const message = err instanceof Error ? err.message : String(err);
 
+    console.error(`[gemini] API call failed after ${Date.now() - t0}ms:`, message);
+
     if (message.includes("429") || message.toLowerCase().includes("quota")) {
       return {
         ok: false,
         error: "Gemini API rate limit reached. Please wait a moment and try again.",
         code: "RATE_LIMIT",
+      };
+    }
+    if (message.includes("503") || message.toLowerCase().includes("unavailable")) {
+      return {
+        ok: false,
+        error: "Gemini API is temporarily unavailable due to high demand. Please try again in a moment.",
+        code: "UNAVAILABLE",
       };
     }
     if (message.includes("403") || message.toLowerCase().includes("permission")) {
@@ -192,7 +272,8 @@ export async function callGemini(
     };
   }
 
-  // Parse and validate the JSON response
+  // ── Parse and validate the JSON response ──────────────────────────────────
+  const t6 = Date.now();
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawText);
@@ -215,5 +296,11 @@ export async function callGemini(
     };
   }
 
+  const t7 = Date.now();
+  console.log(
+    `[gemini] parse+validate: ${t7 - t6}ms | total: ${t7 - t0}ms (client: ${t2 - t1}ms, prompt: ${t3 - t2}ms, api: ${t6 - t3}ms, parse: ${t7 - t6}ms)`,
+  );
+
   return { ok: true, analysis: validated.data };
 }
+
