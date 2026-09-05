@@ -7,7 +7,9 @@ import {
   ExternalLink,
   Flag,
   GitCompare,
+  Loader2,
   Save,
+  Sparkles,
   Star,
   Users,
 } from "lucide-react";
@@ -21,6 +23,9 @@ import { useStore } from "@/lib/store";
 import { CLUSTERS, gemExplanation, isHiddenGem, overallSignal, type Scores } from "@/lib/data";
 import { calculateCompositeScore, isCustomWeights } from "@/lib/scoring";
 import { getRelatedSubmissions } from "@/lib/similarity";
+import { analyzeSubmission } from "./api.analyze";
+import type { GeminiAnalysis } from "@/lib/gemini";
+
 
 export const Route = createFileRoute("/judge/submissions/$id")({
   component: ProjectDetail,
@@ -71,6 +76,46 @@ function ProjectDetail() {
     },
   );
   const [notes, setNotes] = useState(existing?.notes ?? "");
+
+  // ── Gemini live analysis state (not persisted, resets on refresh) ──────
+  const [geminiAnalysis, setGeminiAnalysis] = useState<GeminiAnalysis | null>(null);
+  const [geminiLoading, setGeminiLoading] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+
+  async function runGeminiAnalysis() {
+    if (!sub || geminiLoading) return;
+    setGeminiLoading(true);
+    setGeminiError(null);
+    try {
+      const result = await analyzeSubmission({
+        data: {
+          name: sub.name,
+          team: sub.team,
+          category: sub.category,
+          problem: sub.problem,
+          solution: sub.solution,
+          stack: sub.stack,
+        },
+      });
+      if (result.ok) {
+        setGeminiAnalysis(result.analysis);
+        toast.success("Gemini analysis complete");
+      } else {
+        setGeminiError(result.error);
+        toast.error(result.error);
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "An unexpected error occurred. Please try again.";
+      setGeminiError(msg);
+      toast.error(msg);
+    } finally {
+      setGeminiLoading(false);
+    }
+  }
+
 
   if (!hydrated)
     return (
@@ -166,7 +211,25 @@ function ProjectDetail() {
           </section>
 
           <section className="glass rounded-2xl p-6">
-            <h2 className="text-lg font-semibold">AI analysis</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">AI analysis</h2>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={runGeminiAnalysis}
+                disabled={geminiLoading}
+                className="gap-2"
+              >
+                {geminiLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {geminiLoading ? "Analyzing…" : geminiAnalysis ? "Re-analyze with Gemini" : "Analyze with Gemini"}
+              </Button>
+            </div>
+
+            {/* ── Seed / baseline analysis ── */}
             <div className="mt-4">
               <AiNote>
                 <p>{sub.reasoning}</p>
@@ -196,6 +259,54 @@ function ProjectDetail() {
                 </ul>
               </div>
             </div>
+
+            {/* ── Gemini error state ── */}
+            {geminiError && !geminiLoading && (
+              <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/8 p-4 text-sm">
+                <p className="font-medium text-destructive">Gemini analysis unavailable</p>
+                <p className="mt-1 text-foreground/75">{geminiError}</p>
+              </div>
+            )}
+
+            {/* ── Live Gemini result ── */}
+            {geminiAnalysis && !geminiLoading && (
+              <div className="mt-6 space-y-4 border-t border-border/40 pt-6">
+                <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-primary">
+                  <Sparkles className="h-3.5 w-3.5" /> Live Gemini Analysis
+                </p>
+                <AiNote>
+                  <p className="mb-2 font-medium">{geminiAnalysis.summary}</p>
+                  <p>{geminiAnalysis.reasoning}</p>
+                </AiNote>
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <div>
+                    <p className="text-sm font-medium text-success">Strengths</p>
+                    <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
+                      {geminiAnalysis.strengths.map((x) => (
+                        <li key={x}>• {x}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-warning">Risks &amp; limitations</p>
+                    <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
+                      {geminiAnalysis.risks.map((x) => (
+                        <li key={x}>• {x}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">Gemini dimension scores</p>
+                  <ScoreBar label="Innovation" value={geminiAnalysis.scores.innovation} />
+                  <ScoreBar label="Impact" value={geminiAnalysis.scores.impact} />
+                  <ScoreBar label="Technical strength" value={geminiAnalysis.scores.technical} />
+                  <ScoreBar label="Feasibility" value={geminiAnalysis.scores.feasibility} />
+                  <ScoreBar label="Presentation quality" value={geminiAnalysis.scores.presentation} />
+                </div>
+              </div>
+            )}
+
             <HumanLoopNote className="mt-6" />
           </section>
 
