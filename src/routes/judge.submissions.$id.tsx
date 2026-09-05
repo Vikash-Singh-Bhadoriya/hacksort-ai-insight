@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/lib/store";
-import { CLUSTERS, gemExplanation, isHiddenGem, overallSignal, type Scores } from "@/lib/data";
+import { CLUSTERS, gemExplanation, isHiddenGem, type Scores } from "@/lib/data";
 import { calculateCompositeScore, isCustomWeights } from "@/lib/scoring";
 import { getRelatedSubmissions } from "@/lib/similarity";
 import { analyzeSubmission } from "./api.analyze";
@@ -183,7 +183,6 @@ function ProjectDetail() {
   const gem = isHiddenGem(sub.scores);
   const cluster = CLUSTERS.find((c) => c.id === sub.cluster);
   const ev = evaluations[id];
-  const aiSignal = overallSignal(sub.scores);
   const composite = calculateCompositeScore(sub.scores, judgeWeights);
   const custom = isCustomWeights(judgeWeights);
 
@@ -453,24 +452,6 @@ function ProjectDetail() {
 
         {/* ── Right / Sidebar ── */}
         <aside className="space-y-5">
-          {/* AI Signals */}
-          <div className="glass rounded-2xl p-5">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-base font-semibold">AI signals</h2>
-              <span className="font-display text-3xl font-semibold text-gradient tabular-nums">
-                {aiSignal}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">AI signal (fixed baseline)</p>
-            <div className="mt-4 space-y-3">
-              <ScoreBar label="Innovation" value={sub.scores.innovation} />
-              <ScoreBar label="Impact" value={sub.scores.impact} />
-              <ScoreBar label="Technical strength" value={sub.scores.technical} />
-              <ScoreBar label="Feasibility" value={sub.scores.feasibility} />
-              <ScoreBar label="Presentation quality" value={sub.scores.presentation} />
-            </div>
-          </div>
-
           {/* Composite Score */}
           <div className={`glass rounded-2xl p-5 ${custom ? "ring-1 ring-primary/30" : ""}`}>
             <div className="flex items-baseline justify-between">
