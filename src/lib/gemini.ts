@@ -146,7 +146,7 @@ export async function callGemini(
   let rawText: string;
   try {
     const response = await genai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-3.5-flash",
       contents: prompt,
       config: {
         // Request structured JSON output matching our schema
