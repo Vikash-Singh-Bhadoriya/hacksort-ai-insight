@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
@@ -25,6 +25,7 @@ import { calculateCompositeScore, isCustomWeights } from "@/lib/scoring";
 import { getRelatedSubmissions } from "@/lib/similarity";
 import { analyzeSubmission } from "./api.analyze";
 import type { GeminiAnalysis } from "@/lib/gemini";
+import { getAnalysisBySubmission, rowToAnalysis } from "@/lib/db/analyses";
 
 
 export const Route = createFileRoute("/judge/submissions/$id")({
@@ -77,29 +78,85 @@ function ProjectDetail() {
   );
   const [notes, setNotes] = useState(existing?.notes ?? "");
 
-  // ── Gemini live analysis state (not persisted, resets on refresh) ──────
+  // ── Gemini analysis state ──────────────────────────────────────────────
+  // Populated either from Supabase (on mount) or from a fresh Gemini call.
   const [geminiAnalysis, setGeminiAnalysis] = useState<GeminiAnalysis | null>(null);
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [geminiError, setGeminiError] = useState<string | null>(null);
+  // true when the displayed analysis came from Supabase cache (not a fresh call)
+  const [analysisCached, setAnalysisCached] = useState(false);
 
-  async function runGeminiAnalysis() {
+  // ── Load persisted analysis on mount ───────────────────────────────────
+  // Runs once after the store is hydrated and the submission is known.
+  // Uses the anon Supabase client (SELECT is allowed by RLS).
+  // Does NOT call Gemini — cache load only.
+  useEffect(() => {
+    if (!hydrated || !sub) return;
+
+    let cancelled = false;
+
+    async function loadCachedAnalysis() {
+      try {
+        const row = await getAnalysisBySubmission(sub!.id);
+        if (cancelled) return;
+        if (row) {
+          setGeminiAnalysis(rowToAnalysis(row));
+          setAnalysisCached(true);
+        }
+      } catch (err) {
+        // Log the DB error but do not surface it — the page still works
+        // without the cached analysis; the judge can click Analyze.
+        if (!cancelled) {
+          console.warn("[ProjectDetail] Could not load cached analysis:", err);
+        }
+      }
+    }
+
+    void loadCachedAnalysis();
+    return () => {
+      cancelled = true;
+    };
+    // sub.id is stable for the lifetime of this page; hydrated only flips once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, sub?.id]);
+
+  // ── Analyze button handler ──────────────────────────────────────────────
+  // Calls the server function, which checks the Supabase cache internally.
+  // If a cached row exists the server returns it immediately (0 Gemini calls).
+  // If not, Gemini runs and the result is persisted before being returned.
+  // forceRefresh=true bypasses the server cache (used by the Re-analyze button).
+  async function runGeminiAnalysis(forceRefresh = false) {
     if (!sub || geminiLoading) return;
     setGeminiLoading(true);
     setGeminiError(null);
     try {
       const result = await analyzeSubmission({
         data: {
+          submissionId: sub.id,
+          forceRefresh,
+          // Gemini input fields
           name: sub.name,
           team: sub.team,
           category: sub.category,
           problem: sub.problem,
           solution: sub.solution,
           stack: sub.stack,
+          // Full submission fields for FK parent row upsert in Supabase
+          members: sub.members,
+          deckUrl: sub.deckUrl,
+          scores: sub.scores,
+          reasoning: sub.reasoning,
+          strengths: sub.strengths,
+          risks: sub.risks,
+          cluster: sub.cluster,
+          status: sub.status,
+          submittedAt: sub.submittedAt,
         },
       });
       if (result.ok) {
         setGeminiAnalysis(result.analysis);
-        toast.success("Gemini analysis complete");
+        setAnalysisCached(result.cached);
+        toast.success(result.cached ? "Loaded from cache" : "Gemini analysis complete");
       } else {
         setGeminiError(result.error);
         toast.error(result.error);
@@ -216,7 +273,7 @@ function ProjectDetail() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={runGeminiAnalysis}
+                onClick={() => runGeminiAnalysis(!!geminiAnalysis)}
                 disabled={geminiLoading}
                 className="gap-2"
               >
@@ -268,11 +325,12 @@ function ProjectDetail() {
               </div>
             )}
 
-            {/* ── Live Gemini result ── */}
+            {/* ── Gemini result (cached or live) ── */}
             {geminiAnalysis && !geminiLoading && (
               <div className="mt-6 space-y-4 border-t border-border/40 pt-6">
                 <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-primary">
-                  <Sparkles className="h-3.5 w-3.5" /> Live Gemini Analysis
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {analysisCached ? "Cached Analysis" : "Live Gemini Analysis"}
                 </p>
                 <AiNote>
                   <p className="mb-2 font-medium">{geminiAnalysis.summary}</p>
