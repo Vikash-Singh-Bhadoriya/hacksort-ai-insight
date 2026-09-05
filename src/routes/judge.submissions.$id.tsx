@@ -285,36 +285,28 @@ function ProjectDetail() {
               </Button>
             </div>
 
-            {/* ── Seed / baseline analysis ── */}
-            <div className="mt-4">
-              <AiNote>
-                <p>{sub.reasoning}</p>
-              </AiNote>
-            </div>
+            {/* ── Hidden Gem signal (score-derived, shown regardless of Gemini state) ── */}
             {gem ? (
               <div className="mt-4 rounded-xl border border-warning/30 bg-warning/8 p-4 text-sm">
                 <p className="mb-2 font-medium text-warning">Potential Hidden Gem signal</p>
                 <p className="text-foreground/85">{gemExplanation(sub)}</p>
               </div>
             ) : null}
-            <div className="mt-6 grid gap-6 sm:grid-cols-2">
-              <div>
-                <p className="text-sm font-medium text-success">Strengths</p>
-                <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-                  {sub.strengths.map((x) => (
-                    <li key={x}>• {x}</li>
-                  ))}
-                </ul>
+
+            {/* ── Loading state ── */}
+            {geminiLoading && (
+              <div className="mt-6 flex items-center gap-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                Running Gemini analysis…
               </div>
-              <div>
-                <p className="text-sm font-medium text-warning">Risks &amp; limitations</p>
-                <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-                  {sub.risks.map((x) => (
-                    <li key={x}>• {x}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+            )}
+
+            {/* ── Empty state (no analysis yet, not loading) ── */}
+            {!geminiAnalysis && !geminiLoading && !geminiError && (
+              <p className="mt-6 text-sm text-muted-foreground">
+                Click <span className="font-medium text-foreground">Analyze with Gemini</span> to generate an AI-powered evaluation for this submission.
+              </p>
+            )}
 
             {/* ── Gemini error state ── */}
             {geminiError && !geminiLoading && (
@@ -326,7 +318,7 @@ function ProjectDetail() {
 
             {/* ── Gemini result (cached or live) ── */}
             {geminiAnalysis && !geminiLoading && (
-              <div className="mt-6 space-y-4 border-t border-border/40 pt-6">
+              <div className="mt-6 space-y-4">
                 <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-primary">
                   <Sparkles className="h-3.5 w-3.5" />
                   {analysisCached ? "Cached Analysis" : "Live Gemini Analysis"}
