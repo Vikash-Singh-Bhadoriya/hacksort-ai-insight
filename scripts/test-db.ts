@@ -56,6 +56,22 @@ function assert(condition: boolean, label: string, detail?: unknown) {
   else fail(label, detail);
 }
 
+/**
+ * Compare two score objects key-by-key.
+ *
+ * PostgreSQL jsonb does NOT preserve insertion key order — it re-sorts keys
+ * alphabetically. JSON.stringify therefore fails even when every value is
+ * identical (different key order => different string). We compare per key.
+ */
+function scoresEqual(
+  a: Record<string, unknown> | null | undefined,
+  b: Record<string, unknown>,
+): boolean {
+  if (!a) return false;
+  const keys = Object.keys(b);
+  return keys.every((k) => a[k] === b[k]);
+}
+
 // ── Test data ──────────────────────────────────────────────────────────────
 
 const TEST_ID = `test-${Date.now()}`;
@@ -140,8 +156,8 @@ async function testSubmissions() {
   assert(!fetchErr, "A9: fetch by id succeeds", fetchErr);
   assert(fetched?.id === TEST_ID, "A10: fetch returns correct id", fetched?.id);
   assert(
-    JSON.stringify(fetched?.scores) === JSON.stringify(TEST_SUBMISSION.scores),
-    "A11: scores jsonb round-trips correctly",
+    scoresEqual(fetched?.scores, TEST_SUBMISSION.scores),
+    "A11: scores jsonb round-trips correctly (key-by-key, jsonb reorders keys)",
     fetched?.scores,
   );
   assert(
@@ -220,8 +236,8 @@ async function testAnalyses() {
     saved?.risks,
   );
   assert(
-    JSON.stringify(saved?.scores) === JSON.stringify(MOCK_ANALYSIS.scores),
-    "C7: scores jsonb round-trips",
+    scoresEqual(saved?.scores, MOCK_ANALYSIS.scores),
+    "C7: scores jsonb round-trips correctly (key-by-key, jsonb reorders keys)",
     saved?.scores,
   );
 
