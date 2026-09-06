@@ -1,58 +1,71 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalLink, Github, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { AiNote, HumanLoopNote } from "@/components/ScoreBits";
 import { analyzeGithubRepository } from "@/routes/api.analyze-github";
 import type { GitHubAnalysisSuccess } from "@/routes/api.analyze-github";
+import type { Submission } from "@/lib/data";
 
 const MAX_ROOT_FILES_SHOWN = 8;
 
-function isPlausibleGithubUrl(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("https://") && !trimmed.startsWith("http://")) return false;
-  try {
-    const host = new URL(trimmed).hostname.toLowerCase();
-    return host === "github.com" || host === "www.github.com";
-  } catch {
-    return false;
-  }
-}
-
 /**
- * GitHub Repository Analysis POC — a judge can paste a public repository URL
- * and get an AI technical cross-check of the participant's claimed stack.
+ * GitHub Repository Analysis.
  *
- * The actual fetching + ONE Gemini call happen server-side in
- * api.analyze-github.ts. This component only collects the URL, calls the
- * server function, and renders the evidence + assessment.
+ * Driven by the participant-provided submission.githubUrl — the judge never
+ * pastes a URL. The server function (api.analyze-github.ts) handles the cache:
+ * an existing github_analyses row for this submission + URL is returned with
+ * zero GitHub/Gemini calls; otherwise a fresh fetch + single Gemini analysis
+ * runs and is persisted before being displayed.
  */
-export function GithubAnalysis({ claimedStack }: { claimedStack: string[] }) {
-  const [url, setUrl] = useState("");
+export function GithubAnalysis({ submission }: { submission: Submission }) {
+  const githubUrl = submission.githubUrl?.trim() ?? "";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GitHubAnalysisSuccess | null>(null);
+  const startedRef = useRef(false);
 
-  async function runAnalysis() {
-    const trimmed = url.trim();
-    if (!isPlausibleGithubUrl(trimmed)) {
-      setError("Invalid GitHub repository URL.");
-      toast.error("Invalid GitHub repository URL.");
-      return;
-    }
+  async function runAnalysis(forceRefresh = false) {
     if (loading) return;
-
     setLoading(true);
     setError(null);
     try {
       const res = await analyzeGithubRepository({
-        data: { url: trimmed, claimedStack },
+        data: {
+          url: githubUrl,
+          claimedStack: submission.stack,
+          submissionId: submission.id,
+          forceRefresh,
+          // Full submission fields for the FK parent row upsert in Supabase
+          name: submission.name,
+          team: submission.team,
+          members: submission.members,
+          category: submission.category,
+          problem: submission.problem,
+          solution: submission.solution,
+          stack: submission.stack,
+          deckUrl: submission.deckUrl,
+          scores: submission.scores,
+          reasoning: submission.reasoning,
+          strengths: submission.strengths,
+          risks: submission.risks,
+          cluster: submission.cluster,
+          status: submission.status,
+          submittedAt: submission.submittedAt,
+        },
       });
       if (res.ok) {
         setResult(res);
-        toast.success("GitHub repository analysis complete");
+        if (!forceRefresh) {
+          toast.success(
+            res.cached
+              ? "Loaded from cached GitHub analysis"
+              : "GitHub repository analysis complete",
+          );
+        } else {
+          toast.success("GitHub repository analysis complete");
+        }
       } else {
         setError(res.error);
         toast.error(res.error);
@@ -67,72 +80,96 @@ export function GithubAnalysis({ claimedStack }: { claimedStack: string[] }) {
     }
   }
 
+  // When navigating between submissions, clear the previous submission's state.
+  useEffect(() => {
+    setResult(null);
+    setError(null);
+    startedRef.current = false;
+  }, [githubUrl]);
+
+  // Auto-analyze once per submission when it has a GitHub URL.
+  useEffect(() => {
+    if (!githubUrl || startedRef.current) return;
+    startedRef.current = true;
+    void runAnalysis(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [githubUrl]);
+
   return (
     <section className="glass rounded-2xl p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">GitHub Repository Analysis</h2>
-        <Badge variant="outline" className="border-border/70 text-muted-foreground">
-          POC
-        </Badge>
-      </div>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Pasted a public GitHub repository to inspect actual repository evidence and cross-check the
-        claimed tech stack. Public repositories only.
-      </p>
-
-      {/* ── URL input + analyze ── */}
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <div className="flex-1">
-          <Input
-            value={url}
-            onChange={(e) => {
-              setUrl(e.target.value);
-              if (error) setError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void runAnalysis();
-            }}
-            placeholder="https://github.com/owner/repository"
-            aria-label="GitHub repository URL"
-            disabled={loading}
-          />
+        <div className="flex items-center gap-2">
+          {githubUrl && (result || error || loading) ? (
+            <Badge variant="outline" className="border-border/70 text-muted-foreground">
+              Source: Participant-provided
+            </Badge>
+          ) : null}
+          <Badge variant="outline" className="border-border/70 text-muted-foreground">
+            POC
+          </Badge>
         </div>
-        <Button
-          onClick={() => void runAnalysis()}
-          disabled={loading || url.trim() === ""}
-          className="gap-2"
-        >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Github className="h-4 w-4" />}
-          {loading
-            ? "Fetching repository & analyzing…"
-            : result
-              ? "Re-analyze GitHub Repository"
-              : "Analyze GitHub Repository"}
-        </Button>
       </div>
 
-      {/* ── Loading hint ── */}
-      {loading && (
-        <div className="mt-4 flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          Fetching GitHub metadata, README and repository structure, then running a single Gemini
-          analysis…
-        </div>
-      )}
+      {!githubUrl ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          No GitHub repository was provided by this participant.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Inspecting the participant's public repository to cross-check the claimed tech stack.
+            Public repositories only — a single Gemini analysis is run and cached.
+          </p>
 
-      {/* ── Error state ── */}
-      {error && !loading && (
-        <div
-          role="alert"
-          className="mt-4 rounded-xl border border-destructive/30 bg-destructive/8 p-4 text-sm"
-        >
-          <p className="font-medium text-destructive">GitHub analysis unavailable</p>
-          <p className="mt-1 text-foreground/75">{error}</p>
-        </div>
-      )}
+          {githubUrl && (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <Button asChild variant="ghost" size="sm" className="gap-1.5 px-0">
+                <a href={githubUrl} target="_blank" rel="noreferrer">
+                  <Github className="h-4 w-4 text-primary" />
+                  {githubUrl.replace(/^https?:\/\/(www\.)?/, "")}
+                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                </a>
+              </Button>
+              {result && !loading && (
+                <Button variant="secondary" size="sm" onClick={() => void runAnalysis(true)}>
+                  Re-analyze GitHub Repository
+                </Button>
+              )}
+            </div>
+          )}
 
-      {/* ── Result ── */}
-      {result && !loading && <GithubResultView result={result} />}
+          {/* ── Loading state ── */}
+          {loading && (
+            <div className="mt-4 flex items-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              Analyzing GitHub repository…
+            </div>
+          )}
+
+          {/* ── Error state + retry ── */}
+          {error && !loading && !result && (
+            <div
+              role="alert"
+              className="mt-4 rounded-xl border border-destructive/30 bg-destructive/8 p-4 text-sm"
+            >
+              <p className="font-medium text-destructive">GitHub analysis unavailable</p>
+              <p className="mt-1 text-foreground/75">{error}</p>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-3"
+                onClick={() => void runAnalysis(false)}
+              >
+                Retry GitHub analysis
+              </Button>
+            </div>
+          )}
+
+          {/* ── Result ── */}
+          {result && !loading && <GithubResultView result={result} />}
+        </>
+      )}
 
       <HumanLoopNote className="mt-6" />
     </section>
@@ -148,7 +185,7 @@ function GithubResultView({ result }: { result: GitHubAnalysisSuccess }) {
     <div className="mt-6 space-y-5">
       <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-primary">
         <Sparkles className="h-3.5 w-3.5" />
-        Repository evidence
+        {result.cached ? "Cached analysis — no new GitHub or Gemini calls" : "Repository evidence"}
       </p>
 
       {/* ── Repository + metadata ── */}

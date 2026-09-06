@@ -9,11 +9,18 @@
  */
 
 import { CATEGORIES, type Category, type Submission } from "./data";
+import { isGithubRepoUrl } from "./utils";
 
 // --- Constants ---------------------------------------------------------------
 
 export const REQUIRED_COLUMNS = ["name", "team", "category", "problem", "solution"] as const;
-export const OPTIONAL_COLUMNS = ["members", "stack", "deck_url", "submitted_at"] as const;
+export const OPTIONAL_COLUMNS = [
+  "members",
+  "stack",
+  "deck_url",
+  "github_url",
+  "submitted_at",
+] as const;
 
 /** Category -> cluster mapping, identical to the participant flow. */
 const CLUSTER_FOR: Record<string, string> = {
@@ -139,9 +146,7 @@ export function validateAndParseCSV(text: string): ParsedCsvResult {
     return {
       headers,
       rows: [],
-      errors: [
-        `Missing required column${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}.`,
-      ],
+      errors: [`Missing required column${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}.`],
     };
   }
 
@@ -196,13 +201,10 @@ export function rowToSubmission(row: CsvRow, index: number, ts: number): Submiss
   if (!solution) throw new Error("Field 'solution' is empty.");
 
   // Case-insensitive category lookup
-  const category = CATEGORIES.find(
-    (c) => c.toLowerCase() === categoryRaw.toLowerCase(),
-  ) as Category | undefined;
+  const category = CATEGORIES.find((c) => c.toLowerCase() === categoryRaw.toLowerCase()) as
+    Category | undefined;
   if (!category) {
-    throw new Error(
-      `Invalid category "${categoryRaw}". Valid values: ${CATEGORIES.join(", ")}.`,
-    );
+    throw new Error(`Invalid category "${categoryRaw}". Valid values: ${CATEGORIES.join(", ")}.`);
   }
 
   const members = (row["members"] ?? "")
@@ -216,6 +218,10 @@ export function rowToSubmission(row: CsvRow, index: number, ts: number): Submiss
     .filter(Boolean);
 
   const deckUrl = (row["deck_url"] ?? "").trim();
+
+  // Optional GitHub repository URL — only kept when it points at a GitHub repo.
+  const githubUrl = (row["github_url"] ?? "").trim();
+  const githubValid = isGithubRepoUrl(githubUrl);
 
   // Pseudo-score formula -- identical to participant.tsx
   const scores = {
@@ -246,6 +252,7 @@ export function rowToSubmission(row: CsvRow, index: number, ts: number): Submiss
     solution,
     stack: stack.length ? stack : ["Not specified"],
     deckUrl,
+    ...(githubValid ? { githubUrl } : {}),
     scores,
     reasoning:
       "Imported via CSV. Signals below are a first-pass estimate derived from the structured fields; " +

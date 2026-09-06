@@ -39,6 +39,8 @@ export type Submission = {
   solution: string;
   stack: string[];
   deckUrl: string;
+  /** Optional public GitHub repository URL used for technical verification. */
+  githubUrl?: string;
   scores: Scores;
   reasoning: string;
   strengths: string[];

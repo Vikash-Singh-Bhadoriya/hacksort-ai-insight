@@ -364,7 +364,7 @@ function ProjectDetail() {
             <HumanLoopNote className="mt-6" />
           </section>
 
-          <GithubAnalysis claimedStack={sub.stack} />
+          <GithubAnalysis submission={sub} />
 
           <section className="glass rounded-2xl p-6">
             <h2 className="text-lg font-semibold">Your evaluation</h2>

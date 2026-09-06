@@ -27,6 +27,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from "@/lib/store";
 import { CATEGORIES, HACKATHON, overallSignal, type Category, type Submission } from "@/lib/data";
+import { isGithubRepoUrl } from "@/lib/utils";
 
 export const Route = createFileRoute("/participant")({
   head: () => ({
@@ -56,6 +57,7 @@ const emptyForm = {
   solution: "",
   stack: "",
   deckUrl: "",
+  githubUrl: "",
 };
 
 function Participant() {
@@ -94,6 +96,11 @@ function Participant() {
       toast.error("Select a category before submitting.");
       return;
     }
+    const githubUrl = form.githubUrl.trim();
+    if (githubUrl && !isGithubRepoUrl(githubUrl)) {
+      toast.error("Enter a valid GitHub repository URL, e.g. https://github.com/username/project");
+      return;
+    }
     const stack = form.stack
       .split(",")
       .map((t) => t.trim())
@@ -123,6 +130,7 @@ function Participant() {
       solution: form.solution,
       stack: stack.length ? stack : ["Not specified"],
       deckUrl: form.deckUrl,
+      ...(githubUrl ? { githubUrl } : {}),
       scores,
       reasoning:
         "Freshly ingested submission. Signals below are a first-pass estimate from the structured fields provided; they will refine once the demo assets are parsed.",
@@ -320,6 +328,20 @@ function Participant() {
                   value={form.deckUrl}
                   onChange={(e) => setForm({ ...form, deckUrl: e.target.value })}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="github">GitHub Repository URL</Label>
+                <Input
+                  id="github"
+                  placeholder="https://github.com/username/project"
+                  value={form.githubUrl}
+                  onChange={(e) => setForm({ ...form, githubUrl: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional — add a public GitHub repository so judges can verify your
+                  implementation.
+                </p>
               </div>
 
               <div className="space-y-2 lg:col-span-2">

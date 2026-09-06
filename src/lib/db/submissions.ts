@@ -26,6 +26,7 @@ export type SubmissionRow = {
   solution: string;
   stack: string[];
   deck_url: string;
+  github_url: string;
   scores: Record<string, number>;
   reasoning: string;
   strengths: string[];
@@ -50,6 +51,7 @@ export function rowToSubmission(row: SubmissionRow): Submission {
     solution: row.solution,
     stack: row.stack,
     deckUrl: row.deck_url,
+    ...(row.github_url ? { githubUrl: row.github_url } : {}),
     scores: row.scores as Submission["scores"],
     reasoning: row.reasoning,
     strengths: row.strengths,
@@ -61,9 +63,7 @@ export function rowToSubmission(row: SubmissionRow): Submission {
 }
 
 /** Convert the app's Submission type to a Supabase insert object. */
-export function submissionToRow(
-  sub: Submission,
-): Omit<SubmissionRow, "created_at"> {
+export function submissionToRow(sub: Submission): Omit<SubmissionRow, "created_at"> {
   return {
     id: sub.id,
     name: sub.name,
@@ -74,6 +74,7 @@ export function submissionToRow(
     solution: sub.solution,
     stack: sub.stack,
     deck_url: sub.deckUrl,
+    github_url: sub.githubUrl ?? "",
     scores: sub.scores,
     reasoning: sub.reasoning,
     strengths: sub.strengths,
@@ -120,11 +121,7 @@ export async function listSubmissions(): Promise<SubmissionRow[]> {
  * Returns null if not found.
  */
 export async function getSubmissionById(id: string): Promise<SubmissionRow | null> {
-  const { data, error } = await supabase
-    .from("submissions")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  const { data, error } = await supabase.from("submissions").select("*").eq("id", id).maybeSingle();
 
   if (error) throw new Error(`[db/submissions] getSubmissionById: ${error.message}`);
   return data;

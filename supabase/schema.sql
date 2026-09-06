@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   solution      text        NOT NULL,
   stack         text[]      NOT NULL DEFAULT '{}',
   deck_url      text        NOT NULL DEFAULT '',
+  github_url    text        NOT NULL DEFAULT '',
   scores        jsonb       NOT NULL DEFAULT '{}',
   reasoning     text        NOT NULL DEFAULT '',
   strengths     text[]      NOT NULL DEFAULT '{}',
@@ -78,6 +79,33 @@ CREATE TABLE IF NOT EXISTS gemini_analyses (
 CREATE INDEX IF NOT EXISTS gemini_analyses_submission_id_idx
   ON gemini_analyses (submission_id);
 
+-- 4. github_analyses
+--
+-- Persists the GitHub repository analysis POC result per submission.
+-- Mirrors the GitHubAnalysisSuccess response from api.analyze-github.ts.
+--
+-- UNIQUE(submission_id) => one analysis per submission. Re-analysis upserts
+-- (see api.analyze-github.ts), never inserting a second row.
+-- repository_url stores the CANONICAL GitHub URL (https://github.com/owner/repo)
+-- so URL changes on the submission invalidate a stale cached analysis.
+--
+CREATE TABLE IF NOT EXISTS github_analyses (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id   text        NOT NULL
+                  REFERENCES submissions(id) ON DELETE CASCADE,
+  repository_url  text        NOT NULL,
+  repository      text        NOT NULL,
+  result          jsonb       NOT NULL DEFAULT '{}',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  UNIQUE (submission_id)   -- one analysis per submission (MVP)
+);
+
+-- Index for the most common query pattern
+CREATE INDEX IF NOT EXISTS github_analyses_submission_id_idx
+  ON github_analyses (submission_id);
+
 -- ── Row Level Security ──────────────────────────────────────────────────────
 --
 -- RLS is auto-enabled by the Supabase project settings.
@@ -93,6 +121,7 @@ CREATE INDEX IF NOT EXISTS gemini_analyses_submission_id_idx
 ALTER TABLE submissions      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE judging_criteria ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gemini_analyses  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE github_analyses  ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "submissions_anon_select"
   ON submissions FOR SELECT TO anon USING (true);
@@ -102,3 +131,6 @@ CREATE POLICY "criteria_anon_select"
 
 CREATE POLICY "analyses_anon_select"
   ON gemini_analyses FOR SELECT TO anon USING (true);
+
+CREATE POLICY "github_analyses_anon_select"
+  ON github_analyses FOR SELECT TO anon USING (true);

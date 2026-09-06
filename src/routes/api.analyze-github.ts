@@ -1,25 +1,35 @@
 /**
  * src/routes/api.analyze-github.ts
  *
- * TanStack Start server function for the GitHub repository analysis POC.
+ * TanStack Start server function for the GitHub repository analysis feature.
  *
- * Flow (matches the requested demo):
- *   1. Judge pastes a public GitHub repository URL
- *   2. Server validates it and extracts owner/repo
- *   3. Server fetches repository metadata + README + root contents
+ * Flow (matches the product requirement):
+ *   1. Judge opens a submission that has a participant-provided GitHub URL
+ *   2. Server validates it and extracts owner/repo (canonical form)
+ *   3. Cache hit (github_analyses row for this submission + URL) → return
+ *      stored result: ZERO GitHub API calls, ZERO Gemini calls
+ *   4. Cache miss → fetch repository metadata + README + root contents
  *      (GitHub REST API, unauthenticated, no tokens)
- *   4. Server builds a compact evidence payload and makes ONE Gemini call
- *   5. Result is returned to the browser for display
+ *   5. Build a compact evidence payload and make ONE Gemini call
+ *   6. Upsert the result into Supabase (submissions parent row + github_analyses)
+ *   7. Return the result for display
  *
- * This file runs server-side only. Neither GEMINI_API_KEY nor any secret is
- * ever sent to the browser. GitHub fetching and Gemini invocation both happen
- * here, not in browser code.
+ * This file runs server-side only. Neither GEMINI_API_KEY nor
+ * SUPABASE_SERVICE_ROLE_KEY is ever sent to the browser. GitHub fetching and
+ * Gemini invocation both happen here, not in browser code. Persistence is
+ * best-effort: a Supabase failure logs a warning and the analysis is still
+ * returned to the judge.
  */
 
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { callGitHubAnalysis, type GitHubEvidencePayload } from "@/lib/gemini";
+import {
+  callGitHubAnalysis,
+  GithubGeminiAnalysisSchema,
+  type GitHubEvidencePayload,
+} from "@/lib/gemini";
 import type { GithubGeminiAnalysis } from "@/lib/gemini";
+import { createServiceClient } from "@/lib/supabase";
 
 // ─── Request Validation ────────────────────────────────────────────────────
 
@@ -27,6 +37,27 @@ export const GitHubAnalyzeRequestSchema = z.object({
   url: z.string().min(1).max(500),
   /** Tech stack the participant claimed in the submission (cross-check input). */
   claimedStack: z.array(z.string().min(1).max(100)).max(30).default([]),
+  /** Present when the analysis belongs to a submission (cache + persistence key). */
+  submissionId: z.string().min(1).max(200).optional(),
+  /** When true, skip the cached result (re-analyze) and always re-run the pipeline. */
+  forceRefresh: z.boolean().optional().default(false),
+  // Submission fields used to upsert the FK parent row in `submissions` so the
+  // github_analyses FK constraint can be satisfied (same pattern as api.analyze).
+  name: z.string().default(""),
+  team: z.string().default(""),
+  members: z.array(z.string()).default([]),
+  category: z.string().default(""),
+  problem: z.string().default(""),
+  solution: z.string().default(""),
+  stack: z.array(z.string()).default([]),
+  deckUrl: z.string().default(""),
+  scores: z.record(z.string(), z.number()).default({}),
+  reasoning: z.string().default(""),
+  strengths: z.array(z.string()).default([]),
+  risks: z.array(z.string()).default([]),
+  cluster: z.string().default(""),
+  status: z.string().default("Submitted"),
+  submittedAt: z.string().default(""),
 });
 
 export type GitHubAnalyzeRequest = z.infer<typeof GitHubAnalyzeRequestSchema>;
@@ -35,6 +66,8 @@ export type GitHubAnalyzeRequest = z.infer<typeof GitHubAnalyzeRequestSchema>;
 
 export type GitHubAnalysisSuccess = {
   ok: true;
+  /** true when served from the github_analyses cache (no GitHub/Gemini calls) */
+  cached: boolean;
   repository: string;
   repositoryUrl: string;
   description: string;
@@ -96,6 +129,18 @@ export function parseGitHubUrl(rawUrl: string): { owner: string; repo: string } 
   if (!OWNER_RE.test(owner) || !REPO_RE.test(repo)) return null;
 
   return { owner, repo };
+}
+
+/**
+ * Canonical form of a GitHub repository URL: `https://github.com/owner/repo`.
+ * Used both as the cache consistency key (repository_url column) so a changed
+ * participant URL invalidates a stale cached analysis, and as the stored
+ * github_url on the submission.
+ */
+export function canonicalGithubUrl(rawUrl: string): string | null {
+  const parsed = parseGitHubUrl(rawUrl);
+  if (!parsed) return null;
+  return `https://github.com/${parsed.owner}/${parsed.repo}`;
 }
 
 // ─── GitHub REST API helpers (server-side only) ────────────────────────────
@@ -275,14 +320,196 @@ function buildEvidence(
   };
 }
 
+// ─── Cache + Persistence (server-side only) ────────────────────────────────
+
+/**
+ * The subset of GitHubAnalysisSuccess that is persisted (everything except the
+ * transient `ok`/`cached` flags, which are re-derived on read). Stored as a
+ * single `result` jsonb column on github_analyses.
+ */
+const StoredGithubResultSchema = z.object({
+  repository: z.string(),
+  repositoryUrl: z.string(),
+  description: z.string(),
+  primaryLanguage: z.string().nullable(),
+  topics: z.array(z.string()),
+  stars: z.number(),
+  forks: z.number(),
+  defaultBranch: z.string(),
+  license: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  rootFiles: z.array(z.string()),
+  readmeAvailable: z.boolean(),
+  manifestFiles: z.array(z.string()),
+  detectedStructure: z.array(z.string()),
+  analysis: GithubGeminiAnalysisSchema,
+});
+
+type StoredGithubResult = z.infer<typeof StoredGithubResultSchema>;
+
+/**
+ * Try to fetch a cached GitHub analysis from Supabase.
+ *
+ * Returns:
+ *   { hit: true, result } — valid cached analysis matching the requested URL
+ *   { hit: false }        — no row, OR the row is stale (repository_url differs
+ *                            from the submitted URL) → the pipeline may re-run
+ *
+ * A stale-row check uses the CANONICAL url; a participant changing their
+ * repository must never see the old repository's analysis.
+ *
+ * Throws on genuine database errors (caller logs and treats as a cache miss).
+ */
+async function getCachedGithubAnalysis(
+  submissionId: string,
+  canonicalUrl: string,
+): Promise<{ hit: true; result: StoredGithubResult } | { hit: false }> {
+  const db = createServiceClient();
+  if (!db) return { hit: false }; // Supabase not configured — treat as miss
+
+  const { data, error } = await db
+    .from("github_analyses")
+    .select("repository_url, result")
+    .eq("submission_id", submissionId)
+    .maybeSingle();
+
+  if (error) throw new Error(`[api.analyze-github] Supabase read error: ${error.message}`);
+  if (!data) return { hit: false };
+
+  if (data.repository_url !== canonicalUrl) {
+    console.log(
+      `[api.analyze-github] Stale cache for ${submissionId}: stored ${data.repository_url} != requested ${canonicalUrl}`,
+    );
+    return { hit: false };
+  }
+
+  const validated = StoredGithubResultSchema.safeParse(data.result);
+  if (!validated.success) {
+    console.warn(
+      "[api.analyze-github] Cached row for",
+      submissionId,
+      "failed schema validation — treating as miss:",
+      validated.error.format(),
+    );
+    return { hit: false };
+  }
+
+  return { hit: true, result: validated.data };
+}
+
+/**
+ * Persist a GitHub analysis for a submission (upsert semantics).
+ *
+ * First upserts the parent row in `submissions` (satisfying the FK and storing
+ * the canonical github_url), then upserts `github_analyses` keyed on
+ * UNIQUE(submission_id). Logs a warning on failure but does NOT throw — a
+ * persistence failure must not turn a valid analysis into a user-visible error.
+ */
+async function persistGithubAnalysis(
+  submissionData: {
+    id: string;
+    name: string;
+    team: string;
+    members: string[];
+    category: string;
+    problem: string;
+    solution: string;
+    stack: string[];
+    deckUrl: string;
+    scores: Record<string, number>;
+    reasoning: string;
+    strengths: string[];
+    risks: string[];
+    cluster: string;
+    status: string;
+    submittedAt: string;
+  },
+  canonicalUrl: string,
+  result: StoredGithubResult,
+): Promise<void> {
+  const db = createServiceClient();
+  if (!db) {
+    console.warn(
+      "[api.analyze-github] Supabase not configured — GitHub analysis not persisted for",
+      submissionData.id,
+    );
+    return;
+  }
+
+  // Step A: upsert the parent submissions row (FK parent for github_analyses).
+  const { error: subErr } = await db.from("submissions").upsert(
+    {
+      id: submissionData.id,
+      name: submissionData.name,
+      team: submissionData.team,
+      members: submissionData.members,
+      category: submissionData.category,
+      problem: submissionData.problem,
+      solution: submissionData.solution,
+      stack: submissionData.stack,
+      deck_url: submissionData.deckUrl,
+      github_url: canonicalUrl,
+      scores: submissionData.scores,
+      reasoning: submissionData.reasoning,
+      strengths: submissionData.strengths,
+      risks: submissionData.risks,
+      cluster: submissionData.cluster,
+      status: submissionData.status,
+      submitted_at: submissionData.submittedAt || new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+
+  if (subErr) {
+    console.warn(
+      "[api.analyze-github] Failed to upsert submission",
+      submissionData.id,
+      "—",
+      subErr.message,
+      "— GitHub analysis will not be persisted (FK would fail)",
+    );
+    return;
+  }
+
+  // Step B: upsert the analysis (FK parent row now guaranteed to exist).
+  const { error: anaErr } = await db.from("github_analyses").upsert(
+    {
+      submission_id: submissionData.id,
+      repository_url: canonicalUrl,
+      repository: result.repository,
+      result,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "submission_id" },
+  );
+
+  if (anaErr) {
+    console.warn(
+      "[api.analyze-github] Failed to persist GitHub analysis for",
+      submissionData.id,
+      "—",
+      anaErr.message,
+    );
+  } else {
+    console.log("[api.analyze-github] GitHub analysis persisted for", submissionData.id);
+  }
+}
+
 // ─── Server Function ───────────────────────────────────────────────────────
 
 /**
- * analyzeGithubRepository — server-side GitHub POC endpoint.
+ * analyzeGithubRepository — server-side GitHub POC endpoint with Supabase cache.
  *
- * Fetches metadata, README, and root contents for a public repository, builds
- * a compact evidence payload, and makes exactly ONE Gemini call to produce a
- * technical assessment for the judge. No Supabase persistence in this POC.
+ * Fetch path: validates the URL → fetches metadata/README/root contents for a
+ * public repository → builds a compact evidence payload → makes exactly ONE
+ * Gemini call → upserts github_analyses (with the submissions FK parent row) →
+ * returns the result.
+ *
+ * Cache path: when submissionId is provided and a github_analyses row exists
+ * for the SAME canonical repository URL, the stored result is returned with
+ * ZERO GitHub API calls and ZERO Gemini calls. A changed URL (stale cache) is
+ * treated as a miss and re-analyzed.
  */
 export const analyzeGithubRepository = createServerFn({ method: "POST" })
   .validator((raw: unknown): GitHubAnalyzeRequest => {
@@ -293,14 +520,59 @@ export const analyzeGithubRepository = createServerFn({ method: "POST" })
     return parsed.data;
   })
   .handler(async ({ data }): Promise<GitHubAnalysisResult> => {
-    const { url, claimedStack } = data;
+    const {
+      url,
+      claimedStack,
+      submissionId,
+      forceRefresh,
+      // Submission fields for FK parent row upsert (stripped from the pipeline)
+      name,
+      team,
+      members,
+      category,
+      problem,
+      solution,
+      stack,
+      deckUrl,
+      scores,
+      reasoning,
+      strengths,
+      risks,
+      cluster,
+      status,
+      submittedAt,
+    } = data;
 
-    // ── Step 1: Validate the URL and extract owner/repo ──────────────────
+    // ── Step 0: Validate the URL and derive the canonical form ───────────
     const parsed = parseGitHubUrl(url);
     if (!parsed) {
       return { ok: false, error: "Invalid GitHub repository URL.", code: "INVALID_URL" };
     }
+    const canonical = canonicalGithubUrl(url)!;
     const { owner, repo } = parsed;
+
+    // ── Step 1: Cache hit check (skipped when forceRefresh=true) ─────────
+    if (submissionId && !forceRefresh) {
+      let cacheResult: Awaited<ReturnType<typeof getCachedGithubAnalysis>>;
+      try {
+        cacheResult = await getCachedGithubAnalysis(submissionId, canonical);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn("[api.analyze-github] Cache read failed, proceeding to fetch:", msg);
+        cacheResult = { hit: false };
+      }
+
+      if (cacheResult.hit) {
+        console.log(
+          "[api.analyze-github] Cache hit for",
+          submissionId,
+          "— skipping GitHub + Gemini",
+        );
+        return { ok: true, cached: true, ...cacheResult.result };
+      }
+    } else if (submissionId) {
+      console.log("[api.analyze-github] forceRefresh=true for", submissionId, "— bypassing cache");
+    }
 
     // ── Step 2: Fetch repository metadata ────────────────────────────────
     let repoRes: Response;
@@ -381,9 +653,9 @@ export const analyzeGithubRepository = createServerFn({ method: "POST" })
     const geminiResult = await callGitHubAnalysis(evidence);
     if (!geminiResult.ok) return geminiResult;
 
+    // ── Step 6: Persist (best effort) and return ────────────────────────
     const meta = metaParsed.data;
-    return {
-      ok: true,
+    const result = {
       repository: meta.full_name,
       repositoryUrl: meta.html_url,
       description: meta.description ?? "",
@@ -400,5 +672,32 @@ export const analyzeGithubRepository = createServerFn({ method: "POST" })
       manifestFiles: evidence.keyFiles,
       detectedStructure: evidence.detectedStructure,
       analysis: geminiResult.analysis,
-    };
+    } satisfies StoredGithubResult;
+
+    if (submissionId) {
+      await persistGithubAnalysis(
+        {
+          id: submissionId,
+          name,
+          team,
+          members,
+          category,
+          problem,
+          solution,
+          stack,
+          deckUrl,
+          scores,
+          reasoning,
+          strengths,
+          risks,
+          cluster,
+          status,
+          submittedAt,
+        },
+        canonical,
+        result,
+      );
+    }
+
+    return { ok: true, cached: false, ...result };
   });
