@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import { AiNote, GemBadge, HumanLoopNote, ScoreBar } from "@/components/ScoreBits";
+import { GithubAnalysis } from "@/components/GithubAnalysis";
 import { RelatedSubmissions } from "@/components/RelatedSubmissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ import { getRelatedSubmissions } from "@/lib/similarity";
 import { analyzeSubmission } from "./api.analyze";
 import type { GeminiAnalysis } from "@/lib/gemini";
 import { getAnalysisBySubmission, rowToAnalysis } from "@/lib/db/analyses";
-
 
 export const Route = createFileRoute("/judge/submissions/$id")({
   component: ProjectDetail,
@@ -163,16 +163,13 @@ function ProjectDetail() {
       }
     } catch (err) {
       const msg =
-        err instanceof Error
-          ? err.message
-          : "An unexpected error occurred. Please try again.";
+        err instanceof Error ? err.message : "An unexpected error occurred. Please try again.";
       setGeminiError(msg);
       toast.error(msg);
     } finally {
       setGeminiLoading(false);
     }
   }
-
 
   if (!hydrated)
     return (
@@ -281,7 +278,11 @@ function ProjectDetail() {
                 ) : (
                   <Sparkles className="h-3.5 w-3.5" />
                 )}
-                {geminiLoading ? "Analyzing…" : geminiAnalysis ? "Re-analyze with Gemini" : "Analyze with Gemini"}
+                {geminiLoading
+                  ? "Analyzing…"
+                  : geminiAnalysis
+                    ? "Re-analyze with Gemini"
+                    : "Analyze with Gemini"}
               </Button>
             </div>
 
@@ -304,7 +305,8 @@ function ProjectDetail() {
             {/* ── Empty state (no analysis yet, not loading) ── */}
             {!geminiAnalysis && !geminiLoading && !geminiError && (
               <p className="mt-6 text-sm text-muted-foreground">
-                Click <span className="font-medium text-foreground">Analyze with Gemini</span> to generate an AI-powered evaluation for this submission.
+                Click <span className="font-medium text-foreground">Analyze with Gemini</span> to
+                generate an AI-powered evaluation for this submission.
               </p>
             )}
 
@@ -351,13 +353,18 @@ function ProjectDetail() {
                   <ScoreBar label="Impact" value={geminiAnalysis.scores.impact} />
                   <ScoreBar label="Technical strength" value={geminiAnalysis.scores.technical} />
                   <ScoreBar label="Feasibility" value={geminiAnalysis.scores.feasibility} />
-                  <ScoreBar label="Presentation quality" value={geminiAnalysis.scores.presentation} />
+                  <ScoreBar
+                    label="Presentation quality"
+                    value={geminiAnalysis.scores.presentation}
+                  />
                 </div>
               </div>
             )}
 
             <HumanLoopNote className="mt-6" />
           </section>
+
+          <GithubAnalysis claimedStack={sub.stack} />
 
           <section className="glass rounded-2xl p-6">
             <h2 className="text-lg font-semibold">Your evaluation</h2>
