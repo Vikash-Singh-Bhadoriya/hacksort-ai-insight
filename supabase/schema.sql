@@ -38,12 +38,21 @@ CREATE TABLE IF NOT EXISTS submissions (
 --
 -- The `submissions` table is often ALREADY present (from an earlier schema),
 -- so `CREATE TABLE IF NOT EXISTS submissions` above is a no-op and will NOT
--- add a new column. This ALTER is idempotent and MUST be (re)applied whenever
--- this file is run against an existing database, otherwise
--- `api.analyze-github.ts` persistence fails with
--- "Could not find the 'github_url' column of 'submissions'".
+-- add a new column. These ALTERs are idempotent and MUST be (re)applied
+-- whenever this file is run against an existing database, otherwise
+-- `api.analyze-github.ts` / `api.upload-presentation.ts` persistence fails.
 ALTER TABLE submissions
   ADD COLUMN IF NOT EXISTS github_url text NOT NULL DEFAULT '';
+
+-- Ib. Presentation upload columns (PPTX analysis feature).
+-- Idempotent back-fills for the same reason as github_url above:
+-- `CREATE TABLE IF NOT EXISTS` does NOT add columns to an existing table.
+ALTER TABLE submissions
+  ADD COLUMN IF NOT EXISTS presentation_file_name text NOT NULL DEFAULT '';
+ALTER TABLE submissions
+  ADD COLUMN IF NOT EXISTS presentation_file_hash text NOT NULL DEFAULT '';
+ALTER TABLE submissions
+  ADD COLUMN IF NOT EXISTS presentation_storage_path text NOT NULL DEFAULT '';
 
 -- 2. judging_criteria
 --
@@ -117,6 +126,34 @@ CREATE TABLE IF NOT EXISTS github_analyses (
 CREATE INDEX IF NOT EXISTS github_analyses_submission_id_idx
   ON github_analyses (submission_id);
 
+-- 5. presentation_analyses
+--
+-- Persists the PPTX presentation analysis POC result per submission.
+-- Mirrors the PresentationAnalysisSuccess response from api.analyze-presentation.ts
+-- (stored as a single `result` jsonb column: { evidence, analysis }).
+--
+-- UNIQUE(submission_id) => one analysis per submission. Re-analysis upserts
+-- (see api.analyze-presentation.ts), never inserting a second row.
+-- file_hash stores the SHA-256 of the analyzed PPTX so a participant
+-- replacing their presentation invalidates a stale cached analysis.
+--
+CREATE TABLE IF NOT EXISTS presentation_analyses (
+  id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id text        NOT NULL
+                REFERENCES submissions(id) ON DELETE CASCADE,
+  file_name     text        NOT NULL,
+  file_hash     text        NOT NULL,
+  result        jsonb       NOT NULL DEFAULT '{}',
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+
+  UNIQUE (submission_id)   -- one analysis per submission (MVP)
+);
+
+-- Index for the most common query pattern
+CREATE INDEX IF NOT EXISTS presentation_analyses_submission_id_idx
+  ON presentation_analyses (submission_id);
+
 -- ── Row Level Security ──────────────────────────────────────────────────────
 --
 -- RLS is auto-enabled by the Supabase project settings.
@@ -129,10 +166,19 @@ CREATE INDEX IF NOT EXISTS github_analyses_submission_id_idx
 --
 -- Production: replace with user-scoped policies once Supabase Auth lands.
 --
+-- Policies use DROP POLICY IF EXISTS first so the script can be re-run safely.
+--
 ALTER TABLE submissions      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE judging_criteria ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gemini_analyses  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE github_analyses  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE presentation_analyses ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "submissions_anon_select" ON submissions;
+DROP POLICY IF EXISTS "criteria_anon_select" ON judging_criteria;
+DROP POLICY IF EXISTS "analyses_anon_select" ON gemini_analyses;
+DROP POLICY IF EXISTS "github_analyses_anon_select" ON github_analyses;
+DROP POLICY IF EXISTS "presentation_analyses_anon_select" ON presentation_analyses;
 
 CREATE POLICY "submissions_anon_select"
   ON submissions FOR SELECT TO anon USING (true);
@@ -145,3 +191,6 @@ CREATE POLICY "analyses_anon_select"
 
 CREATE POLICY "github_analyses_anon_select"
   ON github_analyses FOR SELECT TO anon USING (true);
+
+CREATE POLICY "presentation_analyses_anon_select"
+  ON presentation_analyses FOR SELECT TO anon USING (true);

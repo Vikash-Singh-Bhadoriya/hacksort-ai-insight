@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock,
   FileUp,
+  Loader2,
   MapPin,
   Trophy,
   UserPlus,
@@ -28,6 +29,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from "@/lib/store";
 import { CATEGORIES, HACKATHON, overallSignal, type Category, type Submission } from "@/lib/data";
 import { isGithubRepoUrl } from "@/lib/utils";
+import { uploadPresentation } from "./api.upload-presentation";
+
+const MAX_PPTX_SIZE = 20 * 1024 * 1024; // 20 MB
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const comma = dataUrl.indexOf(",");
+      if (comma === -1) return reject(new Error("Could not read the file."));
+      resolve(dataUrl.slice(comma + 1));
+    };
+    reader.onerror = () => reject(new Error("Could not read the file."));
+    reader.readAsDataURL(file);
+  });
+}
 
 export const Route = createFileRoute("/participant")({
   head: () => ({
@@ -67,6 +85,9 @@ function Participant() {
   const [members, setMembers] = useState<string[]>([]);
   const [memberInput, setMemberInput] = useState("");
   const [form, setForm] = useState(emptyForm);
+  const [pptxFile, setPptxFile] = useState<File | null>(null);
+  const [pptxError, setPptxError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [mine, setMine] = useState<string[]>([]);
   const [tab, setTab] = useState("info");
 
@@ -90,12 +111,37 @@ function Participant() {
     setMemberInput("");
   };
 
-  const submitProject = (e: React.FormEvent) => {
+  const onPptxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setPptxError(null);
+    if (!file) {
+      setPptxFile(null);
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".pptx")) {
+      setPptxError("Only .pptx files are accepted. Legacy .ppt files are not supported.");
+      setPptxFile(null);
+      e.target.value = "";
+      return;
+    }
+    if (file.size > MAX_PPTX_SIZE) {
+      setPptxError(
+        `File is larger than the 20 MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`,
+      );
+      setPptxFile(null);
+      e.target.value = "";
+      return;
+    }
+    setPptxFile(file);
+  };
+
+  const submitProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.category) {
       toast.error("Select a category before submitting.");
       return;
     }
+    if (uploading) return;
     const githubUrl = form.githubUrl.trim();
     if (githubUrl && !isGithubRepoUrl(githubUrl)) {
       toast.error("Enter a valid GitHub repository URL, e.g. https://github.com/username/project");
@@ -118,10 +164,69 @@ function Participant() {
       impact: 70 + (form.problem.length % 20),
       technical: 68 + ((stack.length * 4) % 22),
       feasibility: 71 + (form.solution.length % 17),
-      presentation: form.deckUrl ? 74 + (form.name.length % 14) : 52,
+      presentation: form.deckUrl || pptxFile ? 74 + (form.name.length % 14) : 52,
     };
+
+    const subId = `u${Date.now()}`;
+
+    // ── Optional PPTX upload (no Gemini call here — analysis is deferred) ──
+    let presentationFile;
+    if (pptxFile) {
+      setUploading(true);
+      try {
+        const fileBase64 = await fileToBase64(pptxFile);
+        const res = await uploadPresentation({
+          data: {
+            submissionId: subId,
+            fileName: pptxFile.name,
+            fileBase64,
+            name: form.name,
+            team: form.team || profile.team,
+            members: members.length ? members : [profile.name].filter(Boolean),
+            category: form.category,
+            problem: form.problem,
+            solution: form.solution,
+            stack: stack.length ? stack : ["Not specified"],
+            deckUrl: form.deckUrl,
+            githubUrl,
+            scores,
+            reasoning:
+              "Freshly ingested submission. Signals below are a first-pass estimate from the structured fields provided; they will refine once the demo assets are parsed.",
+            strengths: ["Clearly scoped problem statement", `Categorised under ${form.category}`],
+            risks: form.deckUrl
+              ? ["Awaiting demo verification"]
+              : ["No presentation link provided"],
+            cluster: clusterFor[form.category] ?? "open-labs",
+            status: "Submitted",
+            submittedAt: new Date().toISOString(),
+          },
+        });
+        if (!res.ok) {
+          setUploading(false);
+          toast.error(res.error);
+          return;
+        }
+        presentationFile = {
+          fileName: res.fileName,
+          storagePath: res.storagePath,
+          fileHash: res.fileHash,
+          uploadedAt: res.uploadedAt,
+        };
+      } catch (err) {
+        setUploading(false);
+        const msg =
+          err instanceof Error ? err.message : "Presentation upload failed. Please try again.";
+        toast.error(msg);
+        return;
+      }
+      setUploading(false);
+      toast.success("Presentation uploaded successfully.", {
+        description: `${pptxFile.name} was stored for judging.`,
+      });
+    }
+
     const sub: Submission = {
-      id: `u${Date.now()}`,
+      id: subId,
       name: form.name,
       team: form.team || profile.team,
       members: members.length ? members : [profile.name].filter(Boolean),
@@ -131,6 +236,7 @@ function Participant() {
       stack: stack.length ? stack : ["Not specified"],
       deckUrl: form.deckUrl,
       ...(githubUrl ? { githubUrl } : {}),
+      ...(presentationFile ? { presentationFile } : {}),
       scores,
       reasoning:
         "Freshly ingested submission. Signals below are a first-pass estimate from the structured fields provided; they will refine once the demo assets are parsed.",
@@ -143,6 +249,8 @@ function Participant() {
     addSubmission(sub);
     setMine((m) => [...m, sub.id]);
     setForm({ ...emptyForm, team: sub.team });
+    setPptxFile(null);
+    setPptxError(null);
     toast.success("Submission received", {
       description: `${sub.name} filed under ${sub.category}.`,
     });
@@ -321,13 +429,40 @@ function Participant() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="deck">Presentation / PPT link</Label>
+                <Label htmlFor="deck">Presentation link</Label>
                 <Input
                   id="deck"
                   placeholder="https://…"
                   value={form.deckUrl}
                   onChange={(e) => setForm({ ...form, deckUrl: e.target.value })}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Optional — a link to your deck on Google Slides, Canva or similar.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pptx">Upload a presentation (.pptx)</Label>
+                <Input
+                  id="pptx"
+                  type="file"
+                  accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  onChange={onPptxChange}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Upload your presentation (.pptx). HackSort will extract presentation evidence for
+                  judging.
+                </p>
+                {pptxFile ? (
+                  <p className="text-xs text-success">
+                    Selected: {pptxFile.name} ({(pptxFile.size / (1024 * 1024)).toFixed(1)} MB) —
+                    will be uploaded on submit.
+                  </p>
+                ) : null}
+                {pptxError ? <p className="text-xs text-destructive">{pptxError}</p> : null}
+                <p className="text-[11px] text-muted-foreground/70">
+                  Accepted format: .pptx · Maximum size: 20 MB. Legacy .ppt files are not supported.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -416,9 +551,13 @@ function Participant() {
               </div>
 
               <div className="lg:col-span-2">
-                <Button type="submit">
-                  <FileUp className="mr-2 h-4 w-4" />
-                  Submit project
+                <Button type="submit" disabled={uploading}>
+                  {uploading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileUp className="mr-2 h-4 w-4" />
+                  )}
+                  {uploading ? "Uploading presentation…" : "Submit project"}
                 </Button>
               </div>
             </form>

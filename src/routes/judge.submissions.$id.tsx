@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { AiNote, GemBadge, HumanLoopNote, ScoreBar } from "@/components/ScoreBits";
 import { GithubAnalysis } from "@/components/GithubAnalysis";
+import { PresentationAnalysis } from "@/components/PresentationAnalysis";
 import { RelatedSubmissions } from "@/components/RelatedSubmissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -365,6 +366,8 @@ function ProjectDetail() {
           </section>
 
           <GithubAnalysis submission={sub} />
+
+          <PresentationAnalysis submission={sub} />
 
           <section className="glass rounded-2xl p-6">
             <h2 className="text-lg font-semibold">Your evaluation</h2>

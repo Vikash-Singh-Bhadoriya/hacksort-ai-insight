@@ -29,6 +29,13 @@ export type Scores = {
   presentation: number;
 };
 
+export type PresentationFile = {
+  fileName: string;
+  storagePath: string;
+  fileHash: string;
+  uploadedAt: string;
+};
+
 export type Submission = {
   id: string;
   name: string;
@@ -41,6 +48,8 @@ export type Submission = {
   deckUrl: string;
   /** Optional public GitHub repository URL used for technical verification. */
   githubUrl?: string;
+  /** Optional uploaded PPTX presentation file metadata. */
+  presentationFile?: PresentationFile;
   scores: Scores;
   reasoning: string;
   strengths: string[];

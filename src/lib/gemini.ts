@@ -561,3 +561,323 @@ export async function callGitHubAnalysis(
   console.log(`[gemini:github] analysis complete in ${Date.now() - t0}ms`);
   return { ok: true, analysis: validated.data };
 }
+
+// ─── Presentation (PPTX) Analysis ──────────────────────────────────────────
+//
+// Decision-support for participant-uploaded PPTX files. Deterministic text +
+// structure extraction (src/lib/pptx-extractor.ts) runs FIRST; only the compact
+// evidence payload is sent to Gemini. The analysis separates directly-supported
+// claims from claims requiring verification, so the judge can cross-check
+// against GitHub evidence later. Exactly one Gemini call per cache miss.
+
+/**
+ * Compact presentation evidence payload sent to Gemini. Built from
+ * extractPresentationEvidence(); never contains binary/image data.
+ */
+export type PresentationEvidencePayload = {
+  /** Project context from the submission (not from slides). */
+  submissionContext: {
+    name: string;
+    team: string;
+    category: string;
+    problem: string;
+    solution: string;
+    stack: string[];
+  };
+  /** Slide-level evidence in the compact formatted form. */
+  formattedSlides: string;
+  slideCount: number;
+  totalChars: number;
+  totalImageCount: number;
+  totalTableCount: number;
+  technologyKeywords: string[];
+  githubUrls: string[];
+  demoUrls: string[];
+  /** Extracted URLs from all slides. */
+  allUrls: string[];
+  /** Whether speaker notes were available. */
+  hasSpeakerNotes: boolean;
+  /** Extraction warnings. */
+  warnings: string[];
+};
+
+/**
+ * Validates Gemini's structured JSON response for a presentation analysis.
+ *
+ * `claimsToVerify` links each claim to the slide where it appeared and a
+ * verification status. Scores are integers in [0, 100] and represent AI signals
+ * only — never the judge's final evaluation.
+ */
+export const PresentationGeminiAnalysisSchema = z.object({
+  summary: z.string().min(1).max(1000),
+  reasoning: z.string().min(1).max(3000),
+
+  problemClarity: z.object({
+    score: z.number().int().min(0).max(100),
+    reason: z.string().min(1).max(500),
+  }),
+  solutionClarity: z.object({
+    score: z.number().int().min(0).max(100),
+    reason: z.string().min(1).max(500),
+  }),
+  technicalDepth: z.object({
+    score: z.number().int().min(0).max(100),
+    reason: z.string().min(1).max(500),
+  }),
+  implementationEvidence: z.object({
+    score: z.number().int().min(0).max(100),
+    reason: z.string().min(1).max(500),
+  }),
+  impact: z.object({
+    score: z.number().int().min(0).max(100),
+    reason: z.string().min(1).max(500),
+  }),
+  presentationStructure: z.object({
+    score: z.number().int().min(0).max(100),
+    reason: z.string().min(1).max(500),
+  }),
+
+  strengths: z.array(z.string().min(1).max(300)).min(0).max(6),
+  risks: z.array(z.string().min(1).max(300)).min(0).max(6),
+
+  claimsToVerify: z
+    .array(
+      z.object({
+        claim: z.string().min(1).max(300),
+        source: z.string().min(1).max(100),
+        status: z.enum([
+          "SUPPORTED BY PRESENTATION",
+          "CLAIM REQUIRES VERIFICATION",
+          "NOT FOUND IN PRESENTATION",
+        ]),
+      }),
+    )
+    .min(0)
+    .max(10),
+
+  detectedTechnologies: z.array(z.string().min(1).max(100)).min(0).max(20),
+  githubUrls: z.array(z.string().min(1).max(500)).min(0).max(10),
+  demoUrls: z.array(z.string().min(1).max(500)).min(0).max(10),
+
+  judgeVerification: z.array(z.string().min(1).max(300)).min(1).max(6),
+});
+
+export type PresentationGeminiAnalysis = z.infer<typeof PresentationGeminiAnalysisSchema>;
+
+/**
+ * Builds the prompt for a presentation assessment.
+ *
+ * The prompt hard-separates EXTRACTED EVIDENCE from INFERENCE and from CLAIMS
+ * REQUIRING VERIFICATION. It instructs Gemini to only reference technologies,
+ * features and metrics that appear in the extracted slide text — never to
+ * hallucinate implementation details.
+ */
+export function buildPresentationPrompt(evidence: PresentationEvidencePayload): string {
+  const stackList = evidence.submissionContext.stack.length
+    ? evidence.submissionContext.stack.join(", ")
+    : "(none claimed)";
+  const urls = evidence.allUrls.length ? evidence.allUrls.join("\n") : "(none found)";
+
+  return `You are assisting a hackathon judge who is reviewing a participant's presentation (PPTX).
+
+You are given EXTRACTED EVIDENCE from the presentation — the slide text and structure captured by a deterministic extractor. You are also given the submission context the participant provided when registering.
+
+Your job is to produce a structured decision-support signal. The final judging decision remains with the human judge.
+
+## HARD RULES
+
+1. Analyze ONLY the extracted evidence provided below. If a technology, feature, metric, dataset, architecture or implementation detail does not appear in the extracted slide text, DO NOT assume it exists.
+2. Clearly distinguish between:
+   - Directly supported claims (the slides explicitly state them).
+   - Reasonable inference (the slides strongly imply it, but do not state it).
+   - Claims requiring verification (stated in the slides but unproven — e.g. accuracy numbers, adoption, deployment).
+3. A claim stated in a slide is NOT proof that it is true. "The deck says 95% accuracy" means the team CLAIMS 95% accuracy — it does not mean the model achieves it. Mark such claims as "CLAIM REQUIRES VERIFICATION".
+4. Never invent slide content, numbers, URLs, technologies or features that are not present in the extracted evidence.
+5. You are a decision-support system. You do not decide the winner — the judge does.
+
+## SUBMISSION CONTEXT (from the participant's registration form, not from slides)
+
+- Project: ${evidence.submissionContext.name}
+- Team: ${evidence.submissionContext.team}
+- Category: ${evidence.submissionContext.category}
+- Problem: ${evidence.submissionContext.problem}
+- Solution: ${evidence.submissionContext.solution}
+- Claimed tech stack: ${stackList}
+
+## EXTRACTED PRESENTATION EVIDENCE
+
+${evidence.formattedSlides}
+
+## URLS FOUND IN SLIDES
+
+${urls}
+
+## YOUR ANALYSIS TASK
+
+Evaluate the presentation on these dimensions (score each 0–100):
+
+**problemClarity** — How clearly does the presentation communicate the problem being solved?
+
+**solutionClarity** — How clearly does it communicate the proposed solution?
+
+**technicalDepth** — What technical depth is evident from the slide content? Consider architecture slides, implementation details, and specific technology references. Be conservative — absence of depth in the slides does not mean the team lacks it; it means the presentation does not demonstrate it.
+
+**implementationEvidence** — How much evidence of a real implementation (not just concept) does the presentation show? Screenshots, code references, demos, metrics, architecture diagrams.
+
+**impact** — How convincing is the case for real-world impact?
+
+**presentationStructure** — How well structured and complete is the presentation itself? Consider coverage of problem → solution → implementation → results, logical flow, balance of text per slide.
+
+Also provide:
+
+**strengths** — 2-4 specific strengths evident from the slides.
+
+**risks** — 2-4 risks or gaps a judge should weigh.
+
+**claimsToVerify** — Important claims in the presentation that a judge should verify during the demo or by cross-checking the GitHub repository. For each: the claim, which slide it appeared on (source), and its status:
+   - "SUPPORTED BY PRESENTATION" — the slides state it with context/evidence.
+   - "CLAIM REQUIRES VERIFICATION" — the slides claim something unproven (metrics, adoption, deployed users, etc.).
+   - "NOT FOUND IN PRESENTATION" — commonly expected but absent from the slides.
+
+**detectedTechnologies** — Technologies actually mentioned in the slides.
+
+**githubUrls** — GitHub repository URLs found in the slides.
+
+**demoUrls** — Links that look like deployed demos.
+
+**judgeVerification** — 2-4 concrete things the judge should verify during the live demo, grounded in this presentation.
+
+## OUTPUT FORMAT
+
+Return a single JSON object with exactly these fields:
+{
+  "summary": "1-3 sentence overview of the presentation quality and the project's key distinctive claim",
+  "reasoning": "3-6 sentence narrative explaining your assessment across the dimensions, specific to this presentation",
+  "problemClarity": { "score": <0-100>, "reason": "1-2 sentences" },
+  "solutionClarity": { "score": <0-100>, "reason": "1-2 sentences" },
+  "technicalDepth": { "score": <0-100>, "reason": "1-2 sentences" },
+  "implementationEvidence": { "score": <0-100>, "reason": "1-2 sentences" },
+  "impact": { "score": <0-100>, "reason": "1-2 sentences" },
+  "presentationStructure": { "score": <0-100>, "reason": "1-2 sentences" },
+  "strengths": ["2-4 specific strengths"],
+  "risks": ["2-4 risks or gaps"],
+  "claimsToVerify": [
+    { "claim": "the claim", "source": "Slide N", "status": "CLAIM REQUIRES VERIFICATION" }
+  ],
+  "detectedTechnologies": ["technology names found in slides"],
+  "githubUrls": ["github URLs found in slides"],
+  "demoUrls": ["demo URLs found in slides"],
+  "judgeVerification": ["2-4 concrete things to verify"]
+}`;
+}
+
+/**
+ * Calls the Gemini API with the presentation evidence and validates the
+ * structured response. Reuses the same client singleton and model as the other
+ * analyses. Never throws — returns a structured error object.
+ */
+export async function callPresentationAnalysis(
+  evidence: PresentationEvidencePayload,
+): Promise<
+  { ok: true; analysis: PresentationGeminiAnalysis } | { ok: false; error: string; code: string }
+> {
+  const t0 = Date.now();
+
+  const apiKey = process.env["GEMINI_API_KEY"];
+
+  if (!apiKey || apiKey.trim() === "") {
+    return {
+      ok: false,
+      error: "Gemini is not configured. Set GEMINI_API_KEY in your .env.local file.",
+      code: "NO_API_KEY",
+    };
+  }
+
+  const genai = await getGenAIClient(apiKey);
+  const prompt = buildPresentationPrompt(evidence);
+
+  console.log(`[gemini:presentation] request started — prompt chars: ${prompt.length}`);
+
+  let rawText: string;
+
+  try {
+    const response = await genai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.3,
+        maxOutputTokens: 4000,
+      },
+    });
+
+    const text = response.text;
+    if (!text) {
+      return {
+        ok: false,
+        error: "Gemini returned an empty response. Please try again.",
+        code: "EMPTY_RESPONSE",
+      };
+    }
+    rawText = text;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    console.error(`[gemini:presentation] API call failed after ${Date.now() - t0}ms:`, message);
+
+    if (message.includes("429") || message.toLowerCase().includes("quota")) {
+      return {
+        ok: false,
+        error: "Gemini API rate limit reached. Please wait a moment and try again.",
+        code: "RATE_LIMIT",
+      };
+    }
+    if (message.includes("503") || message.toLowerCase().includes("unavailable")) {
+      return {
+        ok: false,
+        error:
+          "Gemini API is temporarily unavailable due to high demand. Please try again in a moment.",
+        code: "UNAVAILABLE",
+      };
+    }
+    if (message.includes("403") || message.toLowerCase().includes("permission")) {
+      return {
+        ok: false,
+        error: "Gemini API key is invalid or lacks permission. Check your GEMINI_API_KEY.",
+        code: "AUTH_ERROR",
+      };
+    }
+
+    console.error("[gemini:presentation] API call failed:", message);
+    return {
+      ok: false,
+      error: "Gemini API request failed. Please try again.",
+      code: "API_ERROR",
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    console.error("[gemini:presentation] Failed to parse JSON response:", rawText.slice(0, 500));
+    return {
+      ok: false,
+      error: "Gemini returned malformed JSON. Please try again.",
+      code: "PARSE_ERROR",
+    };
+  }
+
+  const validated = PresentationGeminiAnalysisSchema.safeParse(parsed);
+  if (!validated.success) {
+    console.error("[gemini:presentation] Schema validation failed:", validated.error.format());
+    return {
+      ok: false,
+      error: "Gemini response did not match the expected format. Please try again.",
+      code: "VALIDATION_ERROR",
+    };
+  }
+
+  console.log(`[gemini:presentation] analysis complete in ${Date.now() - t0}ms`);
+  return { ok: true, analysis: validated.data };
+}
