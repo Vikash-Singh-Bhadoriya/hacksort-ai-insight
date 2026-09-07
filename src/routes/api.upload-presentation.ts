@@ -27,7 +27,11 @@ import { createServiceClient } from "@/lib/supabase";
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 export const PRESENTATION_BUCKET = "presentation-files";
-export const MAX_PRESENTATION_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+// 3 MB is the app-level ceiling. It keeps the full client→server request body
+// (base64 is ~4/3 × file size) safely under Vercel's 4.5 MB hard request-body
+// limit, so oversized files fail fast with a clear message instead of a
+// truncated/413 "Request Entity Too Large" response mid-upload.
+export const MAX_PRESENTATION_SIZE_BYTES = 3 * 1024 * 1024; // 3 MB
 export const ALLOWED_EXTENSIONS = [".pptx"] as const;
 
 // ─── Request Validation ────────────────────────────────────────────────────
@@ -36,8 +40,8 @@ export const UploadPresentationRequestSchema = z.object({
   submissionId: z.string().min(1).max(200),
   /** Original uploaded file name (e.g. "pitch.pptx"). Extension is validated. */
   fileName: z.string().min(1).max(255),
-  /** File content as base64 (no data: prefix). */
-  fileBase64: z.string().min(1).max(32_000_000), // generous headroom; true size enforced after decode
+  /** File content as base64 (no data: prefix). Cap matches the 3 MB file limit (base64 is ~4/3×). */
+  fileBase64: z.string().min(1).max(4_400_000),
   // Submission fields used to upsert the FK parent row in `submissions` so the
   // presentation metadata + later analysis FK are satisfiable (same pattern as
   // api.analyze-github.ts).
@@ -130,6 +134,12 @@ export const uploadPresentation = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<UploadPresentationResult> => {
     const { submissionId, fileName, fileBase64 } = data;
 
+    console.log("[presentation-upload] request received", {
+      submissionId,
+      fileName,
+      payloadBytes: fileBase64.length,
+    });
+
     // ── Step 1: Validate extension ──────────────────────────────────────
     if (!hasAllowedExtension(fileName)) {
       return {
@@ -141,6 +151,18 @@ export const uploadPresentation = createServerFn({ method: "POST" })
     }
 
     // ── Step 2: Decode base64 → Buffer ──────────────────────────────────
+    // Pre-flight size check on the base64 payload (base64 ≈ 4/3 × bytes) so we
+    // reject oversized files before decoding, avoiding memory + upload waste.
+    const base64SizeCeil = Math.ceil((MAX_PRESENTATION_SIZE_BYTES * 4) / 3) + 8;
+    if (fileBase64.length > base64SizeCeil) {
+      return {
+        ok: false,
+        error:
+          "File is larger than the 3 MB limit. Presentations are capped at 3 MB to keep deploys reliable.",
+        code: "FILE_TOO_LARGE",
+      };
+    }
+
     let buffer: Buffer;
     try {
       buffer = Buffer.from(fileBase64, "base64");
@@ -151,6 +173,11 @@ export const uploadPresentation = createServerFn({ method: "POST" })
         code: "INVALID_FILE_DATA",
       };
     }
+
+    console.log("[presentation-upload] binary decoded", {
+      submissionId,
+      bytes: buffer.length,
+    });
 
     // ── Step 3: Validate size ───────────────────────────────────────────
     if (buffer.length === 0) {
@@ -163,7 +190,7 @@ export const uploadPresentation = createServerFn({ method: "POST" })
     if (buffer.length > MAX_PRESENTATION_SIZE_BYTES) {
       return {
         ok: false,
-        error: `File is larger than the 20 MB limit (got ${(buffer.length / (1024 * 1024)).toFixed(1)} MB).`,
+        error: `File is larger than the 3 MB limit (got ${(buffer.length / (1024 * 1024)).toFixed(1)} MB). Presentations are capped at 3 MB to keep deploys reliable.`,
         code: "FILE_TOO_LARGE",
       };
     }
@@ -238,6 +265,13 @@ export const uploadPresentation = createServerFn({ method: "POST" })
       };
     }
 
+    console.log("[presentation-upload] storage upload complete", {
+      submissionId,
+      fileName: safeName,
+      storagePath,
+      sizeBytes: buffer.length,
+    });
+
     // ── Step 7: Upsert parent submission row with presentation metadata ─
     const parent = {
       id: submissionId,
@@ -275,11 +309,19 @@ export const uploadPresentation = createServerFn({ method: "POST" })
       };
     }
 
-    console.log("[presentation-upload] upload + metadata persisted", {
+    console.log("[presentation-upload] metadata persistence complete", {
       submissionId,
       fileName: safeName,
       storagePath,
       fileHash: fileHash.slice(0, 12),
+    });
+
+    console.log("[presentation-upload] returning JSON-safe response", {
+      ok: true,
+      fileName: safeName,
+      storagePath,
+      fileHash: fileHash.slice(0, 12),
+      uploadedAt,
     });
 
     return { ok: true, fileName: safeName, storagePath, fileHash, uploadedAt };

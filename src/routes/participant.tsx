@@ -31,7 +31,7 @@ import { CATEGORIES, HACKATHON, overallSignal, type Category, type Submission } 
 import { isGithubRepoUrl } from "@/lib/utils";
 import { uploadPresentation } from "./api.upload-presentation";
 
-const MAX_PPTX_SIZE = 20 * 1024 * 1024; // 20 MB
+const MAX_PPTX_SIZE = 3 * 1024 * 1024; // 3 MB — keeps the base64 request body under Vercel's 4.5 MB limit
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -126,7 +126,7 @@ function Participant() {
     }
     if (file.size > MAX_PPTX_SIZE) {
       setPptxError(
-        `File is larger than the 20 MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`,
+        `File is larger than the 3 MB limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`,
       );
       setPptxFile(null);
       e.target.value = "";
@@ -174,6 +174,11 @@ function Participant() {
     if (pptxFile) {
       setUploading(true);
       try {
+        console.log("[presentation-upload-client] calling upload", {
+          submissionId: subId,
+          fileName: pptxFile.name,
+          sizeBytes: pptxFile.size,
+        });
         const fileBase64 = await fileToBase64(pptxFile);
         const res = await uploadPresentation({
           data: {
@@ -201,6 +206,12 @@ function Participant() {
             submittedAt: new Date().toISOString(),
           },
         });
+        console.log("[presentation-upload-client] upload returned", { ok: res.ok });
+        console.log("[presentation-upload-client] result type", typeof res);
+        console.log(
+          "[presentation-upload-client] result keys",
+          res && typeof res === "object" ? Object.keys(res).join(",") : "n/a",
+        );
         if (!res.ok) {
           setUploading(false);
           toast.error(res.error);
@@ -461,7 +472,8 @@ function Participant() {
                 ) : null}
                 {pptxError ? <p className="text-xs text-destructive">{pptxError}</p> : null}
                 <p className="text-[11px] text-muted-foreground/70">
-                  Accepted format: .pptx · Maximum size: 20 MB. Legacy .ppt files are not supported.
+                  Accepted format: .pptx · Maximum size: 3 MB (platform request-body limit). Legacy
+                  .ppt files are not supported.
                 </p>
               </div>
 
