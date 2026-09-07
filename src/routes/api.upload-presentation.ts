@@ -234,87 +234,120 @@ export const uploadPresentation = createServerFn({ method: "POST" })
       fileHash: fileHash.slice(0, 12),
     });
 
-    let uploadError: { message: string } | null = null;
+    // NOTE: this try/catch spans upload + metadata persistence so that no
+    // Raw Supabase Storage/Postgres object or thrown exception ever crosses
+    // the createServerFn boundary — every exit point below returns a plain
+    // JSON-safe object of primitives ({ ok, fileName, storagePath, fileHash,
+    // uploadedAt } or { ok: false, error, code }).
     try {
-      const { error } = await db.storage.from(PRESENTATION_BUCKET).upload(storagePath, buffer, {
-        contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        upsert: true,
-      });
-      uploadError = error;
-    } catch (err) {
-      uploadError = { message: err instanceof Error ? err.message : String(err) };
-    }
+      // ── Step 6: Upload to private Supabase Storage ─────────────────
+      // Log the outcome immediately after await — error message, storage
+      // object path/id, and whether an error exists. File CONTENTS are never
+      // logged; only metadata strings.
+      const { data: uploadData, error: uploadError } = await db.storage
+        .from(PRESENTATION_BUCKET)
+        .upload(storagePath, buffer, {
+          contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          upsert: true,
+        });
 
-    if (uploadError) {
-      const msg = uploadError.message;
-      const missingBucket =
-        msg.toLowerCase().includes("does not exist") ||
-        msg.toLowerCase().includes("bucket") ||
-        msg.toLowerCase().includes("not found");
-      console.error("[presentation-upload] storage upload failed", {
+      console.log("[presentation-upload] storage upload result", {
         submissionId,
         fileName: safeName,
-        reason: msg,
+        storagePath,
+        sizeBytes: buffer.length,
+        errorExists: Boolean(uploadError),
+        error: uploadError ? uploadError.message : null,
+        storageObjectId: uploadData?.path ?? null,
       });
-      return {
-        ok: false,
-        error: missingBucket
-          ? "Presentation storage is not configured. Ask the organizer to create the `presentation-files` storage bucket."
-          : "The presentation file could not be stored. Please try again.",
-        code: missingBucket ? "STORAGE_BUCKET_MISSING" : "STORAGE_UPLOAD_ERROR",
-      };
-    }
 
-    console.log("[presentation-upload] storage upload complete", {
-      submissionId,
-      fileName: safeName,
-      storagePath,
-      sizeBytes: buffer.length,
-    });
+      if (uploadError) {
+        const msg = uploadError.message;
+        const missingBucket =
+          msg.toLowerCase().includes("does not exist") ||
+          msg.toLowerCase().includes("bucket") ||
+          msg.toLowerCase().includes("not found");
+        console.error("[presentation-upload] storage upload failed", {
+          submissionId,
+          fileName: safeName,
+          reason: msg,
+        });
+        return {
+          ok: false,
+          error: missingBucket
+            ? "Presentation storage is not configured. Ask the organizer to create the `presentation-files` storage bucket."
+            : "The presentation file could not be stored. Please try again.",
+          code: missingBucket ? "STORAGE_BUCKET_MISSING" : "STORAGE_UPLOAD_ERROR",
+        };
+      }
 
-    // ── Step 7: Upsert parent submission row with presentation metadata ─
-    const parent = {
-      id: submissionId,
-      name: data.name,
-      team: data.team,
-      members: data.members,
-      category: data.category,
-      problem: data.problem,
-      solution: data.solution,
-      stack: data.stack,
-      deck_url: data.deckUrl,
-      github_url: data.githubUrl || "",
-      presentation_file_name: safeName,
-      presentation_file_hash: fileHash,
-      presentation_storage_path: storagePath,
-      scores: data.scores,
-      reasoning: data.reasoning,
-      strengths: data.strengths,
-      risks: data.risks,
-      cluster: data.cluster,
-      status: data.status,
-      submitted_at: data.submittedAt || new Date().toISOString(),
-    };
-
-    const { error: subErr } = await db.from("submissions").upsert(parent, { onConflict: "id" });
-    if (subErr) {
-      console.error("[presentation-upload] persistence failure — parent submissions upsert", {
+      console.log("[presentation-upload] storage upload complete", {
         submissionId,
-        reason: subErr.message,
+        fileName: safeName,
+        storagePath,
+        sizeBytes: buffer.length,
+      });
+
+      // ── Step 7: Upsert parent submission row with presentation metadata ─
+      const parent = {
+        id: submissionId,
+        name: data.name,
+        team: data.team,
+        members: data.members,
+        category: data.category,
+        problem: data.problem,
+        solution: data.solution,
+        stack: data.stack,
+        deck_url: data.deckUrl,
+        github_url: data.githubUrl || "",
+        presentation_file_name: safeName,
+        presentation_file_hash: fileHash,
+        presentation_storage_path: storagePath,
+        scores: data.scores,
+        reasoning: data.reasoning,
+        strengths: data.strengths,
+        risks: data.risks,
+        cluster: data.cluster,
+        status: data.status,
+        submitted_at: data.submittedAt || new Date().toISOString(),
+      };
+
+      const { error: subErr } = await db.from("submissions").upsert(parent, {
+        onConflict: "id",
+      });
+      if (subErr) {
+        console.error("[presentation-upload] persistence failure — parent submissions upsert", {
+          submissionId,
+          reason: subErr.message,
+        });
+        return {
+          ok: false,
+          error:
+            "The presentation was stored but its metadata could not be saved. Please try again.",
+          code: "PERSISTENCE_ERROR",
+        };
+      }
+
+      console.log("[presentation-upload] metadata persistence complete", {
+        submissionId,
+        fileName: safeName,
+        storagePath,
+        fileHash: fileHash.slice(0, 12),
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error("[presentation-upload] unexpected error in storage/persistence", {
+        submissionId,
+        fileName: safeName,
+        storagePath,
+        reason,
       });
       return {
         ok: false,
-        error: "The presentation was stored but its metadata could not be saved. Please try again.",
-        code: "PERSISTENCE_ERROR",
+        error: "The presentation file could not be processed. Please try again.",
+        code: "INTERNAL_ERROR",
       };
     }
-
-    console.log("[presentation-upload] metadata persistence complete", {
-      submissionId,
-      fileName: safeName,
-      storagePath,
-      fileHash: fileHash.slice(0, 12),
-    });
 
     console.log("[presentation-upload] returning JSON-safe response", {
       ok: true,
