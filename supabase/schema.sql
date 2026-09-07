@@ -34,6 +34,17 @@ CREATE TABLE IF NOT EXISTS submissions (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
+-- Ia. Back-fill for databases created before github_url existed.
+--
+-- The `submissions` table is often ALREADY present (from an earlier schema),
+-- so `CREATE TABLE IF NOT EXISTS submissions` above is a no-op and will NOT
+-- add a new column. This ALTER is idempotent and MUST be (re)applied whenever
+-- this file is run against an existing database, otherwise
+-- `api.analyze-github.ts` persistence fails with
+-- "Could not find the 'github_url' column of 'submissions'".
+ALTER TABLE submissions
+  ADD COLUMN IF NOT EXISTS github_url text NOT NULL DEFAULT '';
+
 -- 2. judging_criteria
 --
 -- Stores the 5 evaluation dimensions used by HackSort AI.

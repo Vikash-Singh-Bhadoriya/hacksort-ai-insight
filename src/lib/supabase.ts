@@ -47,7 +47,12 @@ export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "");
  */
 export function createServiceClient() {
   const serviceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
-  const url = process.env["VITE_SUPABASE_URL"];
+  // The URL is a VITE_ var so it exists both on the browser (import.meta.env,
+  // inlined at build) and on the server (`import.meta.env` in Nitro SSR or
+  // `process.env` when an env var of the same name is injected). Read from
+  // both so the server-side client works regardless of how the deploy host
+  // exposes it — the shared URL is not a secret.
+  const url = import.meta.env["VITE_SUPABASE_URL"] ?? process.env["VITE_SUPABASE_URL"];
 
   if (!serviceKey || !url) {
     console.warn(

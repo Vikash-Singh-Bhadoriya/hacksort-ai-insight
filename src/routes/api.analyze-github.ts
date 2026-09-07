@@ -16,9 +16,14 @@
  *
  * This file runs server-side only. Neither GEMINI_API_KEY nor
  * SUPABASE_SERVICE_ROLE_KEY is ever sent to the browser. GitHub fetching and
- * Gemini invocation both happen here, not in browser code. Persistence is
- * best-effort: a Supabase failure logs a warning and the analysis is still
- * returned to the judge.
+ * Gemini invocation both happen here, not in browser code.
+ *
+ * Persistence is REQUIRED for the cache to work: if GitHub + Gemini both
+ * succeed but the Supabase upsert fails, the handler returns a clear
+ * PERSISTENCE_ERROR instead of pretending the operation fully succeeded. It
+ * never returns the persisted payload to a judge as if cached, and never
+ * leaks service-role credentials or the Gemini key. All persistence paths
+ * log with the [github-analysis] prefix for correlation in server logs.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -365,46 +370,81 @@ async function getCachedGithubAnalysis(
   submissionId: string,
   canonicalUrl: string,
 ): Promise<{ hit: true; result: StoredGithubResult } | { hit: false }> {
+  console.log("[github-analysis] cache lookup", {
+    submissionId,
+    repositoryUrl: canonicalUrl,
+  });
+
   const db = createServiceClient();
-  if (!db) return { hit: false }; // Supabase not configured — treat as miss
+  if (!db) {
+    console.warn("[github-analysis] cache lookup — Supabase not configured, treated as miss", {
+      submissionId,
+    });
+    return { hit: false };
+  }
 
   const { data, error } = await db
     .from("github_analyses")
-    .select("repository_url, result")
+    .select("repository_url, result, repository, updated_at")
     .eq("submission_id", submissionId)
     .maybeSingle();
 
-  if (error) throw new Error(`[api.analyze-github] Supabase read error: ${error.message}`);
-  if (!data) return { hit: false };
+  if (error) throw new Error(`[github-analysis] Supabase read error: ${error.message}`);
+  if (!data) {
+    console.log("[github-analysis] cache miss", { submissionId, repositoryUrl: canonicalUrl });
+    return { hit: false };
+  }
 
   if (data.repository_url !== canonicalUrl) {
-    console.log(
-      `[api.analyze-github] Stale cache for ${submissionId}: stored ${data.repository_url} != requested ${canonicalUrl}`,
-    );
+    console.log("[github-analysis] cache miss — stale URL", {
+      submissionId,
+      cachedUrl: data.repository_url,
+      requestedUrl: canonicalUrl,
+      repository: data.repository,
+    });
     return { hit: false };
   }
 
   const validated = StoredGithubResultSchema.safeParse(data.result);
   if (!validated.success) {
-    console.warn(
-      "[api.analyze-github] Cached row for",
+    console.warn("[github-analysis] cache miss — stored payload failed schema validation", {
       submissionId,
-      "failed schema validation — treating as miss:",
-      validated.error.format(),
-    );
+      repositoryUrl: canonicalUrl,
+      reason: validated.error.format(),
+    });
     return { hit: false };
   }
 
+  console.log("[github-analysis] cache hit", {
+    submissionId,
+    repositoryUrl: canonicalUrl,
+    repository: validated.data.repository,
+    updatedAt: data.updated_at,
+  });
   return { hit: true, result: validated.data };
 }
 
 /**
  * Persist a GitHub analysis for a submission (upsert semantics).
  *
- * First upserts the parent row in `submissions` (satisfying the FK and storing
- * the canonical github_url), then upserts `github_analyses` keyed on
- * UNIQUE(submission_id). Logs a warning on failure but does NOT throw — a
- * persistence failure must not turn a valid analysis into a user-visible error.
+ * Deterministic, single-row-per-submission behavior:
+ *   Step A: upsert the parent `submissions` row (FK parent + stores the
+ *           canonical github_url). This guarantees the github_analyses FK
+ *           (`submission_id → submissions(id)`) is satisfiable even for
+ *           seed/participant submissions that exist only in localStorage.
+ *   Step B: upsert `github_analyses` on UNIQUE(submission_id) — one row per
+ *           submission; re-analysis updates that same row (never a duplicate).
+ *
+ * Persistence is REQUIRED. Any failure (missing column, FK violation, RLS,
+ * network, unconfigured client) is reported via the thrown error so the
+ * handler can return a clear PERSISTENCE_ERROR. It does NOT silently swallow
+ * failures — otherwise the judge would see a fresh result that a refresh would
+ * lose.
+ *
+ * Uses the SERVICE-ROLE client (bypasses RLS). Service-role credentials are
+ * never exposed to the browser; only server-side callers hit this path.
+ *
+ * Returns the upserted github_analyses row (verified non-null).
  */
 async function persistGithubAnalysis(
   submissionData: {
@@ -427,73 +467,91 @@ async function persistGithubAnalysis(
   },
   canonicalUrl: string,
   result: StoredGithubResult,
-): Promise<void> {
+): Promise<{
+  submission_id: string;
+  repository_url: string;
+  repository: string;
+  result: StoredGithubResult;
+  created_at: string;
+  updated_at: string;
+}> {
+  console.log("[github-analysis] persisting analysis", {
+    submissionId: submissionData.id,
+    repositoryUrl: canonicalUrl,
+    repository: result.repository,
+  });
+
   const db = createServiceClient();
   if (!db) {
-    console.warn(
-      "[api.analyze-github] Supabase not configured — GitHub analysis not persisted for",
-      submissionData.id,
+    throw new Error(
+      "[github-analysis] persistence failure — SUPABASE_SERVICE_ROLE_KEY / VITE_SUPABASE_URL not available in the server environment",
     );
-    return;
   }
 
-  // Step A: upsert the parent submissions row (FK parent for github_analyses).
-  const { error: subErr } = await db.from("submissions").upsert(
-    {
-      id: submissionData.id,
-      name: submissionData.name,
-      team: submissionData.team,
-      members: submissionData.members,
-      category: submissionData.category,
-      problem: submissionData.problem,
-      solution: submissionData.solution,
-      stack: submissionData.stack,
-      deck_url: submissionData.deckUrl,
-      github_url: canonicalUrl,
-      scores: submissionData.scores,
-      reasoning: submissionData.reasoning,
-      strengths: submissionData.strengths,
-      risks: submissionData.risks,
-      cluster: submissionData.cluster,
-      status: submissionData.status,
-      submitted_at: submissionData.submittedAt || new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
+  // Step A: parent submissions row (FK target + canonical github_url).
+  const parent = {
+    id: submissionData.id,
+    name: submissionData.name,
+    team: submissionData.team,
+    members: submissionData.members,
+    category: submissionData.category,
+    problem: submissionData.problem,
+    solution: submissionData.solution,
+    stack: submissionData.stack,
+    deck_url: submissionData.deckUrl,
+    github_url: canonicalUrl,
+    scores: submissionData.scores,
+    reasoning: submissionData.reasoning,
+    strengths: submissionData.strengths,
+    risks: submissionData.risks,
+    cluster: submissionData.cluster,
+    status: submissionData.status,
+    submitted_at: submissionData.submittedAt || new Date().toISOString(),
+  };
+  const { error: subErr } = await db.from("submissions").upsert(parent, { onConflict: "id" });
 
   if (subErr) {
-    console.warn(
-      "[api.analyze-github] Failed to upsert submission",
-      submissionData.id,
-      "—",
-      subErr.message,
-      "— GitHub analysis will not be persisted (FK would fail)",
+    throw new Error(
+      `[github-analysis] persistence failure — upserting parent submissions row failed: ${subErr.message}`,
     );
-    return;
   }
 
-  // Step B: upsert the analysis (FK parent row now guaranteed to exist).
-  const { error: anaErr } = await db.from("github_analyses").upsert(
-    {
-      submission_id: submissionData.id,
-      repository_url: canonicalUrl,
-      repository: result.repository,
-      result,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "submission_id" },
-  );
+  // Step B: upsert the single github_analyses row keyed on submission_id.
+  const { data: row, error: anaErr } = await db
+    .from("github_analyses")
+    .upsert(
+      {
+        submission_id: submissionData.id,
+        repository_url: canonicalUrl,
+        repository: result.repository,
+        result,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "submission_id" },
+    )
+    .select("submission_id, repository_url, repository, result, created_at, updated_at")
+    .maybeSingle();
 
   if (anaErr) {
-    console.warn(
-      "[api.analyze-github] Failed to persist GitHub analysis for",
-      submissionData.id,
-      "—",
-      anaErr.message,
+    throw new Error(
+      `[github-analysis] persistence failure — upserting github_analyses row failed: ${anaErr.message}`,
     );
-  } else {
-    console.log("[api.analyze-github] GitHub analysis persisted for", submissionData.id);
   }
+  if (!row) {
+    throw new Error(
+      `[github-analysis] persistence failure — github_analyses upsert returned no row for submission ${submissionData.id}`,
+    );
+  }
+
+  console.log("[github-analysis] persistence success", {
+    submissionId: row.submission_id,
+    repositoryUrl: row.repository_url,
+    repository: row.repository,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+
+  return row;
 }
 
 // ─── Server Function ───────────────────────────────────────────────────────
@@ -550,6 +608,7 @@ export const analyzeGithubRepository = createServerFn({ method: "POST" })
     }
     const canonical = canonicalGithubUrl(url)!;
     const { owner, repo } = parsed;
+    const repoName = `${owner}/${repo}`;
 
     // ── Step 1: Cache hit check (skipped when forceRefresh=true) ─────────
     if (submissionId && !forceRefresh) {
@@ -558,23 +617,26 @@ export const analyzeGithubRepository = createServerFn({ method: "POST" })
         cacheResult = await getCachedGithubAnalysis(submissionId, canonical);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn("[api.analyze-github] Cache read failed, proceeding to fetch:", msg);
+        console.warn("[github-analysis] cache lookup failed, proceeding to fetch", {
+          submissionId,
+          repositoryUrl: canonical,
+          reason: msg,
+        });
         cacheResult = { hit: false };
       }
 
       if (cacheResult.hit) {
-        console.log(
-          "[api.analyze-github] Cache hit for",
-          submissionId,
-          "— skipping GitHub + Gemini",
-        );
         return { ok: true, cached: true, ...cacheResult.result };
       }
     } else if (submissionId) {
-      console.log("[api.analyze-github] forceRefresh=true for", submissionId, "— bypassing cache");
+      console.log("[github-analysis] forceRefresh=true, bypassing cache", {
+        submissionId,
+        repositoryUrl: canonical,
+      });
     }
 
     // ── Step 2: Fetch repository metadata ────────────────────────────────
+    console.log("[github-analysis] analyzing repository", { submissionId, repository: repoName });
     let repoRes: Response;
     try {
       repoRes = await githubFetch(`/repos/${owner}/${repo}`);
@@ -652,8 +714,13 @@ export const analyzeGithubRepository = createServerFn({ method: "POST" })
     const evidence = buildEvidence(metaParsed.data, rootEntries, readme, claimedStack);
     const geminiResult = await callGitHubAnalysis(evidence);
     if (!geminiResult.ok) return geminiResult;
+    console.log("[github-analysis] Gemini analysis complete", {
+      submissionId,
+      repository: repoName,
+      summaryLength: geminiResult.analysis.summary.length,
+    });
 
-    // ── Step 6: Persist (best effort) and return ────────────────────────
+    // ── Step 6: Persist (REQUIRED) and return ────────────────────────────
     const meta = metaParsed.data;
     const result = {
       repository: meta.full_name,
@@ -675,28 +742,43 @@ export const analyzeGithubRepository = createServerFn({ method: "POST" })
     } satisfies StoredGithubResult;
 
     if (submissionId) {
-      await persistGithubAnalysis(
-        {
-          id: submissionId,
-          name,
-          team,
-          members,
-          category,
-          problem,
-          solution,
-          stack,
-          deckUrl,
-          scores,
-          reasoning,
-          strengths,
-          risks,
-          cluster,
-          status,
-          submittedAt,
-        },
-        canonical,
-        result,
-      );
+      try {
+        await persistGithubAnalysis(
+          {
+            id: submissionId,
+            name,
+            team,
+            members,
+            category,
+            problem,
+            solution,
+            stack,
+            deckUrl,
+            scores,
+            reasoning,
+            strengths,
+            risks,
+            cluster,
+            status,
+            submittedAt,
+          },
+          canonical,
+          result,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[github-analysis] persistence failure", {
+          submissionId,
+          repositoryUrl: canonical,
+          repository: repoName,
+          reason: msg,
+        });
+        return {
+          ok: false,
+          error: "The GitHub analysis could not be saved for this submission. Please try again.",
+          code: "PERSISTENCE_ERROR",
+        };
+      }
     }
 
     return { ok: true, cached: false, ...result };

@@ -1,8 +1,9 @@
 /**
  * scripts/test-github.ts
  *
- * Verified CRUD tests for the `github_analyses` persistence table
- * (participant GitHub repository analysis cache).
+ * Verified tests for the `github_analyses` persistence table + the
+ * `submissions.github_url` column that backs the participant GitHub analysis
+ * cache (api.analyze-github.ts).
  *
  * ZERO GitHub API calls and ZERO Gemini API calls — the stored `result`
  * payload is a local mock shaped like the server fn response.
@@ -14,8 +15,12 @@
  *   VITE_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
  *
- * Skips (exit 0) if the github_analyses table does not exist yet — it must be
- * created by applying the github_analyses section of supabase/schema.sql.
+ * Diagnostics (clean skips, exit 0):
+ *   - github_analyses table does not exist yet → apply that section of schema.sql.
+ *   - submissions.github_url column does not exist → apply the idempotent
+ *     "ALTER TABLE submissions ADD COLUMN IF NOT EXISTS github_url ..." block
+ *     of schema.sql (re-running CREATE TABLE IF NOT EXISTS alone is a NO-OP on
+ *     an existing table and will NOT add the column).
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -108,6 +113,19 @@ const MOCK_RESULT = {
 async function tableExists(): Promise<boolean> {
   const { error } = await db.from("github_analyses").select("id").limit(1);
   return !error;
+}
+
+/**
+ * The parent `submissions` table must have a `github_url` column for
+ * api.analyze-github.ts persistence (Step A upserts it on the parent row).
+ * A missing column surfaces as a PGRST204 insert error at runtime.
+ */
+async function githubUrlColumnExists(): Promise<boolean> {
+  const { data, error } = await db.from("submissions").select("github_url").limit(1).maybeSingle();
+  if (error) {
+    return false;
+  }
+  return true;
 }
 
 async function testGithubAnalyses() {
@@ -281,6 +299,33 @@ async function main() {
   console.log(`Test submission ID: ${TEST_ID}`);
   console.log("Real Gemini / GitHub API calls made: 0");
   console.log("==============================================");
+
+  const exists = await tableExists();
+  if (!exists) {
+    console.log(
+      "\nSKIP  github_analyses table does not exist yet.",
+      "\n      Apply the github_analyses section of supabase/schema.sql,",
+      "\n      then re-run this script.",
+    );
+    return;
+  }
+
+  const columnOk = await githubUrlColumnExists();
+  if (!columnOk) {
+    console.log("\nSKIP  submissions.github_url column is MISSING.\n");
+    console.log("      api.analyze-github.ts persistence upserts github_url on the parent");
+    console.log("      submissions row, so this column must exist before analysis can persist.");
+    console.log("      Apply the idempotent ALTER TABLE from supabase/schema.sql:");
+    console.log("");
+    console.log("          ALTER TABLE submissions");
+    console.log("            ADD COLUMN IF NOT EXISTS github_url text NOT NULL DEFAULT '';");
+    console.log("");
+    console.log("      (Re-running CREATE TABLE IF NOT EXISTS submissions alone is a NO-OP");
+    console.log("       on the already-existing table and will not add the column.)");
+    console.log("");
+    console.log("      Then re-run this script.");
+    return;
+  }
 
   try {
     await testGithubAnalyses();
