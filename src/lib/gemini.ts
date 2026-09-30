@@ -595,6 +595,7 @@ export type PresentationEvidencePayload = {
   demoUrls: string[];
   /** Extracted URLs from all slides. */
   allUrls: string[];
+  extractedImages?: Array<{ slideNumber: number; mimeType: string; base64: string }>;
   /** Whether speaker notes were available. */
   hasSpeakerNotes: boolean;
   /** Extraction warnings. */
@@ -672,29 +673,29 @@ export type PresentationGeminiAnalysis = z.infer<typeof PresentationGeminiAnalys
  * features and metrics that appear in the extracted slide text — never to
  * hallucinate implementation details.
  */
-export function buildPresentationPrompt(evidence: PresentationEvidencePayload): string {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function buildPresentationPrompt(evidence: PresentationEvidencePayload): any[] {
   const stackList = evidence.submissionContext.stack.length
     ? evidence.submissionContext.stack.join(", ")
     : "(none claimed)";
   const urls = evidence.allUrls.length ? evidence.allUrls.join("\n") : "(none found)";
 
-  return `You are assisting a hackathon judge who is reviewing a participant's presentation (PPTX).
+  const prefix = `You are assisting a hackathon judge who is reviewing a participant's presentation (PPTX).
 
-You are given EXTRACTED EVIDENCE from the presentation — the slide text and structure captured by a deterministic extractor. You are also given the submission context the participant provided when registering.
-
-Your job is to produce a structured decision-support signal. The final judging decision remains with the human judge.
+You are given EXTRACTED EVIDENCE from the presentation - the slide text and structure captured by a deterministic extractor. You are also given the submission context the participant provided when registering.
 
 ## HARD RULES
 
-1. Analyze ONLY the extracted evidence provided below. If a technology, feature, metric, dataset, architecture or implementation detail does not appear in the extracted slide text, DO NOT assume it exists.
+1. Analyze ONLY the extracted evidence provided below. If a technology, feature, metric, dataset, architecture or implementation detail does not appear in the extracted slide text (or provided images), DO NOT assume it exists.
 2. Clearly distinguish between:
-   - Directly supported claims (the slides explicitly state them).
-   - Reasonable inference (the slides strongly imply it, but do not state it).
-   - Claims requiring verification (stated in the slides but unproven — e.g. accuracy numbers, adoption, deployment).
-3. A claim stated in a slide is NOT proof that it is true. "The deck says 95% accuracy" means the team CLAIMS 95% accuracy — it does not mean the model achieves it. Mark such claims as "CLAIM REQUIRES VERIFICATION".
+   - Directly supported claims (the slides/images explicitly state/show them).
+   - Reasonable inference (the slides/images strongly imply it, but do not state it).
+   - Claims requiring verification (stated in the slides but unproven - e.g. accuracy numbers, adoption, deployment).
+3. A claim stated in a slide is NOT proof that it is true. Mark such claims as "CLAIM REQUIRES VERIFICATION".
 4. Never invent slide content, numbers, URLs, technologies or features that are not present in the extracted evidence.
-5. You are a decision-support system. You do not decide the winner — the judge does.
+5. You are a decision-support system. You do not decide the winner - the judge does.
 6. BE CONCISE. Keep all reasoning strictly to the requested length.
+7. VISUAL EVIDENCE: Some sparse slides include extracted images. Use them to understand architecture, UI, or diagrams. Only extract facts you can clearly see.
 
 ## SUBMISSION CONTEXT (from the participant's registration form, not from slides)
 
@@ -706,47 +707,47 @@ Your job is to produce a structured decision-support signal. The final judging d
 - Claimed tech stack: ${stackList}
 
 ## EXTRACTED PRESENTATION EVIDENCE
+`;
 
-${evidence.formattedSlides}
-
+  const suffix = `
 ## URLS FOUND IN SLIDES
 
 ${urls}
 
 ## YOUR ANALYSIS TASK
 
-Evaluate the presentation on these dimensions (score each 0–100):
+Evaluate the presentation on these dimensions (score each 0-100):
 
-**problemClarity** — How clearly does the presentation communicate the problem being solved?
+**problemClarity** - How clearly does the presentation communicate the problem being solved?
 
-**solutionClarity** — How clearly does it communicate the proposed solution?
+**solutionClarity** - How clearly does it communicate the proposed solution?
 
-**technicalDepth** — What technical depth is evident from the slide content? Consider architecture slides, implementation details, and specific technology references. Be conservative — absence of depth in the slides does not mean the team lacks it; it means the presentation does not demonstrate it.
+**technicalDepth** - What technical depth is evident from the slide content? Consider architecture slides, implementation details, and specific technology references. Be conservative - absence of depth in the slides does not mean the team lacks it; it means the presentation does not demonstrate it.
 
-**implementationEvidence** — How much evidence of a real implementation (not just concept) does the presentation show? Screenshots, code references, demos, metrics, architecture diagrams.
+**implementationEvidence** - How much evidence of a real implementation (not just concept) does the presentation show? Screenshots, code references, demos, metrics, architecture diagrams.
 
-**impact** — How convincing is the case for real-world impact?
+**impact** - How convincing is the case for real-world impact?
 
-**presentationStructure** — How well structured and complete is the presentation itself? Consider coverage of problem → solution → implementation → results, logical flow, balance of text per slide.
+**presentationStructure** - How well structured and complete is the presentation itself? Consider coverage of problem -> solution -> implementation -> results, logical flow, balance of text per slide.
 
 Also provide:
 
-**strengths** — 1-3 specific strengths evident from the slides.
+**strengths** - 1-3 specific strengths evident from the slides.
 
-**risks** — 1-3 risks or gaps a judge should weigh.
+**risks** - 1-3 risks or gaps a judge should weigh.
 
-**claimsToVerify** — Important claims in the presentation that a judge should verify during the demo or by cross-checking the GitHub repository. For each: the claim, which slide it appeared on (source), and its status:
-   - "SUPPORTED BY PRESENTATION" — the slides state it with context/evidence.
-   - "CLAIM REQUIRES VERIFICATION" — the slides claim something unproven (metrics, adoption, deployed users, etc.).
-   - "NOT FOUND IN PRESENTATION" — commonly expected but absent from the slides.
+**claimsToVerify** - Important claims in the presentation that a judge should verify during the demo or by cross-checking the GitHub repository. For each: the claim, which slide it appeared on (source), and its status:
+   - "SUPPORTED BY PRESENTATION" - the slides state it with context/evidence.
+   - "CLAIM REQUIRES VERIFICATION" - the slides claim something unproven (metrics, adoption, deployed users, etc.).
+   - "NOT FOUND IN PRESENTATION" - commonly expected but absent from the slides.
 
-**detectedTechnologies** — Technologies actually mentioned in the slides.
+**detectedTechnologies** - Technologies actually mentioned in the slides.
 
-**githubUrls** — GitHub repository URLs found in the slides.
+**githubUrls** - GitHub repository URLs found in the slides.
 
-**demoUrls** — Links that look like deployed demos.
+**demoUrls** - Links that look like deployed demos.
 
-**judgeVerification** — 1-3 concrete things the judge should verify during the live demo, grounded in this presentation.
+**judgeVerification** - 1-3 concrete things the judge should verify during the live demo, grounded in this presentation.
 
 ## OUTPUT FORMAT
 
@@ -769,7 +770,29 @@ Return a single JSON object with exactly these fields:
   "githubUrls": ["github URLs found in slides"],
   "demoUrls": ["demo URLs found in slides"],
   "judgeVerification": ["1-3 concrete things to verify"]
-}`;
+}
+`;
+
+  const parts: any[] = [];
+  parts.push(prefix);
+
+  if (!evidence.extractedImages || evidence.extractedImages.length === 0) {
+    parts.push(evidence.formattedSlides);
+  } else {
+    parts.push(evidence.formattedSlides + "\n\n--- VISUAL EVIDENCE ---\n");
+    for (const img of evidence.extractedImages) {
+      parts.push("\nSlide " + img.slideNumber + " contained this visual evidence:\n");
+      parts.push({
+        inlineData: {
+          data: img.base64,
+          mimeType: img.mimeType
+        }
+      });
+    }
+  }
+
+  parts.push(suffix);
+  return parts;
 }
 
 /**

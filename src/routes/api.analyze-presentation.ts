@@ -563,6 +563,7 @@ export const analyzePresentation = createServerFn({ method: "POST" })
       allUrls: evidence.allUrls,
       hasSpeakerNotes: evidence.hasSpeakerNotes,
       warnings: evidence.warnings,
+      extractedImages: evidence.slides.flatMap((s) => (s.extractedImages || []).map((img) => ({ slideNumber: s.slideNumber, mimeType: img.mimeType, base64: img.base64 }))),
     });
 
     if (!geminiResult.ok) return geminiResult;

@@ -56,6 +56,12 @@ export type SlideEvidence = {
   sparseContent: boolean;
   /** Whether this slide has excessive text (potential wall-of-text). */
   excessiveContent: boolean;
+  /** MVP: Visual evidence extracted from sparse slides. */
+  extractedImages?: Array<{
+    mimeType: string;
+    base64: string;
+    byteSize: number;
+  }>;
 };
 
 export type PresentationEvidence = {
@@ -513,6 +519,70 @@ export async function extractPresentationEvidence(
       sparseContent: cappedText.replace(/\s+/g, "").length < 20,
       excessiveContent: cappedText.length > MAX_CHARS_PER_SLIDE * 0.9,
     });
+  }
+
+  // ── Step 4.5: Extract images for sparse slides (MVP) ──
+  let totalExtractedImages = 0;
+  for (const slide of slides) {
+    if (slide.sparseContent && slide.imageCount > 0 && totalExtractedImages < 3) {
+      const slidePath = slidesToAnalyze[slide.slideNumber - 1];
+      if (!slidePath) continue;
+
+      const relsPath = slidePath.replace("ppt/slides/", "ppt/slides/_rels/") + ".rels";
+      const relsFile = zip.file(relsPath);
+      if (!relsFile) continue;
+
+      try {
+        const relsXml = await relsFile.async("text");
+        const relRegex = /<Relationship[^>]+Id="([^"]+)"[^>]+Target="([^"]+)"/g;
+        let match;
+        const mediaPaths: string[] = [];
+        while ((match = relRegex.exec(relsXml)) !== null) {
+          const target = match[2];
+          if (target && target.includes("media/")) {
+            let absPath = target;
+            if (target.startsWith("../")) absPath = "ppt/" + target.substring(3);
+            else if (target.startsWith("/")) absPath = target.substring(1);
+            else absPath = "ppt/slides/" + target;
+            mediaPaths.push(absPath);
+          }
+        }
+
+        if (mediaPaths.length === 0) continue;
+
+        let largestMedia: NonNullable<SlideEvidence["extractedImages"]>[number] | null = null;
+        let maxSize = 0;
+
+        for (const mp of mediaPaths) {
+          const mFile = zip.file(mp);
+          if (mFile && !mFile.dir) {
+            const u8 = await mFile.async("uint8array");
+            const size = u8.length;
+            if (size >= 15360 && size <= 4194304 && size > maxSize) {
+              const ext = mp.split(".").pop()?.toLowerCase();
+              let mime = "image/jpeg";
+              if (ext === "png") mime = "image/png";
+              else if (ext === "webp") mime = "image/webp";
+
+              maxSize = size;
+              const b64 = Buffer.from(u8).toString("base64");
+              largestMedia = {
+                mimeType: mime,
+                base64: b64,
+                byteSize: size,
+              };
+            }
+          }
+        }
+
+        if (largestMedia) {
+          slide.extractedImages = [largestMedia];
+          totalExtractedImages++;
+        }
+      } catch (err) {
+        warnings.push(`Slide ${slide.slideNumber}: failed to extract images.`);
+      }
+    }
   }
 
   // ── Step 5: Aggregate URL analysis ────────────────────────────────────
