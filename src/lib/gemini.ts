@@ -424,7 +424,7 @@ Answer the questions a hackathon judge cares about:
 3. ARCHITECTURE: what architecture can be inferred from the structure (monorepo, frontend/backend split, frameworks, service layout)? Mark this clearly as inference.
 4. IMPLEMENTATION EVIDENCE: is there evidence of a real implementation (source directories, manifests, config files, tests, Dockerfile)? Be precise about what you observed.
 5. STRENGTHS and RISKS: technically strong aspects, and weaknesses/gaps/demo risks.
-6. JUDGE VERIFICATION: 2-4 concrete things the judge should verify during the live demo.
+6. JUDGE VERIFICATION: 1-3 concrete things the judge should verify during the live demo.
 
 ## EVIDENCE vs INFERENCE RULES
 
@@ -694,6 +694,7 @@ Your job is to produce a structured decision-support signal. The final judging d
 3. A claim stated in a slide is NOT proof that it is true. "The deck says 95% accuracy" means the team CLAIMS 95% accuracy — it does not mean the model achieves it. Mark such claims as "CLAIM REQUIRES VERIFICATION".
 4. Never invent slide content, numbers, URLs, technologies or features that are not present in the extracted evidence.
 5. You are a decision-support system. You do not decide the winner — the judge does.
+6. BE CONCISE. Keep all reasoning strictly to the requested length.
 
 ## SUBMISSION CONTEXT (from the participant's registration form, not from slides)
 
@@ -730,9 +731,9 @@ Evaluate the presentation on these dimensions (score each 0–100):
 
 Also provide:
 
-**strengths** — 2-4 specific strengths evident from the slides.
+**strengths** — 1-3 specific strengths evident from the slides.
 
-**risks** — 2-4 risks or gaps a judge should weigh.
+**risks** — 1-3 risks or gaps a judge should weigh.
 
 **claimsToVerify** — Important claims in the presentation that a judge should verify during the demo or by cross-checking the GitHub repository. For each: the claim, which slide it appeared on (source), and its status:
    - "SUPPORTED BY PRESENTATION" — the slides state it with context/evidence.
@@ -745,29 +746,29 @@ Also provide:
 
 **demoUrls** — Links that look like deployed demos.
 
-**judgeVerification** — 2-4 concrete things the judge should verify during the live demo, grounded in this presentation.
+**judgeVerification** — 1-3 concrete things the judge should verify during the live demo, grounded in this presentation.
 
 ## OUTPUT FORMAT
 
 Return a single JSON object with exactly these fields:
 {
-  "summary": "1-3 sentence overview of the presentation quality and the project's key distinctive claim",
-  "reasoning": "3-6 sentence narrative explaining your assessment across the dimensions, specific to this presentation",
-  "problemClarity": { "score": <0-100>, "reason": "1-2 sentences" },
-  "solutionClarity": { "score": <0-100>, "reason": "1-2 sentences" },
-  "technicalDepth": { "score": <0-100>, "reason": "1-2 sentences" },
-  "implementationEvidence": { "score": <0-100>, "reason": "1-2 sentences" },
-  "impact": { "score": <0-100>, "reason": "1-2 sentences" },
-  "presentationStructure": { "score": <0-100>, "reason": "1-2 sentences" },
-  "strengths": ["2-4 specific strengths"],
-  "risks": ["2-4 risks or gaps"],
+  "summary": "1-2 sentence overview of the presentation quality and the project's key distinctive claim",
+  "reasoning": "2-3 sentence narrative explaining your assessment across the dimensions, specific to this presentation",
+  "problemClarity": { "score": <0-100>, "reason": "1 concise sentence" },
+  "solutionClarity": { "score": <0-100>, "reason": "1 concise sentence" },
+  "technicalDepth": { "score": <0-100>, "reason": "1 concise sentence" },
+  "implementationEvidence": { "score": <0-100>, "reason": "1 concise sentence" },
+  "impact": { "score": <0-100>, "reason": "1 concise sentence" },
+  "presentationStructure": { "score": <0-100>, "reason": "1 concise sentence" },
+  "strengths": ["1-3 specific strengths"],
+  "risks": ["1-3 risks or gaps"],
   "claimsToVerify": [
     { "claim": "the claim", "source": "Slide N", "status": "CLAIM REQUIRES VERIFICATION" }
   ],
   "detectedTechnologies": ["technology names found in slides"],
   "githubUrls": ["github URLs found in slides"],
   "demoUrls": ["demo URLs found in slides"],
-  "judgeVerification": ["2-4 concrete things to verify"]
+  "judgeVerification": ["1-3 concrete things to verify"]
 }`;
 }
 

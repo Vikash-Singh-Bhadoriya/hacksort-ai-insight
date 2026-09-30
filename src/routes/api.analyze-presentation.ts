@@ -347,6 +347,8 @@ export const analyzePresentation = createServerFn({ method: "POST" })
     return parsed.data;
   })
   .handler(async ({ data }): Promise<PresentationAnalysisResult> => {
+    const t0 = performance.now();
+    let tCache = 0, tDownload = 0, tVerify = 0, tExtract = 0, tGemini = 0, tPersist = 0;
     const {
       submissionId,
       fileName,
@@ -411,6 +413,7 @@ export const analyzePresentation = createServerFn({ method: "POST" })
       });
     }
 
+    tCache = performance.now();
     // ── Step 2: Download the PPTX from private Storage ─────────────────
     const db = createServiceClient();
     if (!db) {
@@ -472,6 +475,7 @@ export const analyzePresentation = createServerFn({ method: "POST" })
       };
     }
 
+    tDownload = performance.now();
     // ── Step 3: Verify SHA-256 hash matches expectation ───────────────
     const actualHash = createHash("sha256").update(fileBuffer).digest("hex");
     if (actualHash !== expectedHash) {
@@ -489,6 +493,7 @@ export const analyzePresentation = createServerFn({ method: "POST" })
       };
     }
 
+    tVerify = performance.now();
     // ── Step 4: Extract deterministic presentation evidence ────────────
     console.log("[presentation-analysis] extracting", {
       submissionId,
@@ -536,6 +541,7 @@ export const analyzePresentation = createServerFn({ method: "POST" })
       githubUrls: evidence.githubUrls.length,
     });
 
+    tExtract = performance.now();
     // ── Step 5: Build compact evidence + ONE Gemini call ───────────────
     const geminiResult = await callPresentationAnalysis({
       submissionContext: {
@@ -567,6 +573,7 @@ export const analyzePresentation = createServerFn({ method: "POST" })
       summaryLength: geminiResult.analysis.summary.length,
     });
 
+    tGemini = performance.now();
     // ── Step 6: Build stored result + persist (REQUIRED) ───────────────
     const evidenceSummary: EvidenceSummary = {
       slideCount: evidence.slideCount,
@@ -623,6 +630,17 @@ export const analyzePresentation = createServerFn({ method: "POST" })
         code: "PERSISTENCE_ERROR",
       };
     }
+
+    tPersist = performance.now();
+    console.log('[presentation-analysis-timing]', {
+      cacheMs: Math.round(tCache - t0),
+      downloadMs: Math.round(tDownload - tCache),
+      verificationMs: Math.round(tVerify - tDownload),
+      extractionMs: Math.round(tExtract - tVerify),
+      geminiMs: Math.round(tGemini - tExtract),
+      persistenceMs: Math.round(tPersist - tGemini),
+      totalMs: Math.round(tPersist - t0),
+    });
 
     return {
       ok: true,
