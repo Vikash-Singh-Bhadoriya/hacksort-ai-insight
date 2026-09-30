@@ -244,9 +244,14 @@ export const uploadPresentation = createServerFn({ method: "POST" })
       // Log the outcome immediately after await — error message, storage
       // object path/id, and whether an error exists. File CONTENTS are never
       // logged; only metadata strings.
+      // Convert Node.js Buffer to a clean ArrayBuffer. Passing a Buffer directly
+      // to Supabase's fetch in some serverless environments causes the request
+      // to hang indefinitely and timeout, resulting in a 504 response.
+      const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+
       const { data: uploadData, error: uploadError } = await db.storage
         .from(PRESENTATION_BUCKET)
-        .upload(storagePath, buffer, {
+        .upload(storagePath, arrayBuffer, {
           contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           upsert: true,
         });
