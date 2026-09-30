@@ -140,25 +140,19 @@ export const uploadPresentation = createServerFn({ method: "POST" })
       payloadBytes: fileBase64.length,
     });
 
-    // ── Step 1: Validate extension ──────────────────────────────────────
     if (!hasAllowedExtension(fileName)) {
       return {
         ok: false,
-        error:
-          "Unsupported file type. Only .pptx files are accepted. Legacy .ppt files are not supported in this version.",
+        error: "Unsupported file type. Only .pptx files are accepted. Legacy .ppt files are not supported in this version.",
         code: "INVALID_EXTENSION",
       };
     }
 
-    // ── Step 2: Decode base64 → Buffer ──────────────────────────────────
-    // Pre-flight size check on the base64 payload (base64 ≈ 4/3 × bytes) so we
-    // reject oversized files before decoding, avoiding memory + upload waste.
     const base64SizeCeil = Math.ceil((MAX_PRESENTATION_SIZE_BYTES * 4) / 3) + 8;
     if (fileBase64.length > base64SizeCeil) {
       return {
         ok: false,
-        error:
-          "File is larger than the 3 MB limit. Presentations are capped at 3 MB to keep deploys reliable.",
+        error: "File is larger than the 3 MB limit. Presentations are capped at 3 MB to keep deploys reliable.",
         code: "FILE_TOO_LARGE",
       };
     }
@@ -167,25 +161,11 @@ export const uploadPresentation = createServerFn({ method: "POST" })
     try {
       buffer = Buffer.from(fileBase64, "base64");
     } catch {
-      return {
-        ok: false,
-        error: "The uploaded file could not be read. Please try again.",
-        code: "INVALID_FILE_DATA",
-      };
+      return { ok: false, error: "The uploaded file could not be read. Please try again.", code: "INVALID_FILE_DATA" };
     }
 
-    console.log("[presentation-upload] binary decoded", {
-      submissionId,
-      bytes: buffer.length,
-    });
-
-    // ── Step 3: Validate size ───────────────────────────────────────────
     if (buffer.length === 0) {
-      return {
-        ok: false,
-        error: "The uploaded file is empty.",
-        code: "EMPTY_FILE",
-      };
+      return { ok: false, error: "The uploaded file is empty.", code: "EMPTY_FILE" };
     }
     if (buffer.length > MAX_PRESENTATION_SIZE_BYTES) {
       return {
@@ -195,30 +175,21 @@ export const uploadPresentation = createServerFn({ method: "POST" })
       };
     }
 
-    // ── Step 4: Validate ZIP magic bytes ────────────────────────────────
     if (!isLikelyZip(buffer)) {
       return {
         ok: false,
-        error:
-          "The file does not look like a valid .pptx (PowerPoint) file. PPTX files are ZIP-based archives.",
+        error: "The file does not look like a valid .pptx (PowerPoint) file. PPTX files are ZIP-based archives.",
         code: "INVALID_PPTX",
       };
     }
 
-    // ── Step 5: Compute SHA-256 hash (server-side, not trusted from client) ──
     const fileHash = createHash("sha256").update(buffer).digest("hex");
 
-    // ── Step 6: Upload to private Supabase Storage ──────────────────────
     const db = createServiceClient();
     if (!db) {
-      console.warn(
-        "[presentation-upload] Supabase not configured in the server environment — upload aborted",
-        { submissionId },
-      );
       return {
         ok: false,
-        error:
-          "Presentation upload is temporarily unavailable. Please try again later, or remove the file and submit without it.",
+        error: "Presentation upload is temporarily unavailable. Please try again later, or remove the file and submit without it.",
         code: "STORAGE_UNAVAILABLE",
       };
     }
@@ -227,73 +198,39 @@ export const uploadPresentation = createServerFn({ method: "POST" })
     const storagePath = buildStoragePath(submissionId, safeName);
     const uploadedAt = new Date().toISOString();
 
-    console.log("[presentation-upload] starting storage upload", {
-      submissionId,
-      fileName: safeName,
-      sizeBytes: buffer.length,
-      fileHash: fileHash.slice(0, 12),
-    });
-
-    // NOTE: this try/catch spans upload + metadata persistence so that no
-    // Raw Supabase Storage/Postgres object or thrown exception ever crosses
-    // the createServerFn boundary — every exit point below returns a plain
-    // JSON-safe object of primitives ({ ok, fileName, storagePath, fileHash,
-    // uploadedAt } or { ok: false, error, code }).
     try {
-      // ── Step 6: Upload to private Supabase Storage ─────────────────
-      // Log the outcome immediately after await — error message, storage
-      // object path/id, and whether an error exists. File CONTENTS are never
-      // logged; only metadata strings.
-      // Convert Node.js Buffer to a clean ArrayBuffer. Passing a Buffer directly
-      // to Supabase's fetch in some serverless environments causes the request
-      // to hang indefinitely and timeout, resulting in a 504 response.
-      const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+      // Use direct REST fetch to bypass @supabase/storage-js node-fetch streaming bug
+      const supabaseUrl = import.meta.env["VITE_SUPABASE_URL"] ?? process.env["VITE_SUPABASE_URL"];
+      const serviceKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+      
+      if (!supabaseUrl || !serviceKey) {
+         console.error("[presentation-upload] Missing VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+         throw new Error("Missing Supabase configuration");
+      }
 
-      const { data: uploadData, error: uploadError } = await db.storage
-        .from(PRESENTATION_BUCKET)
-        .upload(storagePath, arrayBuffer, {
-          contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-          upsert: true,
-        });
-
-      console.log("[presentation-upload] storage upload result", {
-        submissionId,
-        fileName: safeName,
-        storagePath,
-        sizeBytes: buffer.length,
-        errorExists: Boolean(uploadError),
-        error: uploadError ? uploadError.message : null,
-        storageObjectId: uploadData?.path ?? null,
+      const uploadUrl = `${supabaseUrl}/storage/v1/object/${PRESENTATION_BUCKET}/${storagePath}`;
+      const storageRes = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${serviceKey}`,
+          "apikey": serviceKey,
+          "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "Content-Length": buffer.length.toString(),
+          "x-upsert": "true"
+        },
+        body: new Blob([buffer])
       });
 
-      if (uploadError) {
-        const msg = uploadError.message;
-        const missingBucket =
-          msg.toLowerCase().includes("does not exist") ||
-          msg.toLowerCase().includes("bucket") ||
-          msg.toLowerCase().includes("not found");
-        console.error("[presentation-upload] storage upload failed", {
-          submissionId,
-          fileName: safeName,
-          reason: msg,
-        });
+      if (!storageRes.ok) {
+        const errorText = await storageRes.text();
+        const missingBucket = errorText.toLowerCase().includes("does not exist") || errorText.toLowerCase().includes("bucket");
         return {
           ok: false,
-          error: missingBucket
-            ? "Presentation storage is not configured. Ask the organizer to create the `presentation-files` storage bucket."
-            : "The presentation file could not be stored. Please try again.",
+          error: missingBucket ? "Presentation storage is not configured. Ask the organizer to create the `presentation-files` storage bucket." : "The presentation file could not be stored. Please try again.",
           code: missingBucket ? "STORAGE_BUCKET_MISSING" : "STORAGE_UPLOAD_ERROR",
         };
       }
 
-      console.log("[presentation-upload] storage upload complete", {
-        submissionId,
-        fileName: safeName,
-        storagePath,
-        sizeBytes: buffer.length,
-      });
-
-      // ── Step 7: Upsert parent submission row with presentation metadata ─
       const parent = {
         id: submissionId,
         name: data.name,
@@ -317,50 +254,14 @@ export const uploadPresentation = createServerFn({ method: "POST" })
         submitted_at: data.submittedAt || new Date().toISOString(),
       };
 
-      const { error: subErr } = await db.from("submissions").upsert(parent, {
-        onConflict: "id",
-      });
+      const { error: subErr } = await db.from("submissions").upsert(parent, { onConflict: "id" });
       if (subErr) {
-        console.error("[presentation-upload] persistence failure — parent submissions upsert", {
-          submissionId,
-          reason: subErr.message,
-        });
-        return {
-          ok: false,
-          error:
-            "The presentation was stored but its metadata could not be saved. Please try again.",
-          code: "PERSISTENCE_ERROR",
-        };
+        return { ok: false, error: "The presentation was stored but its metadata could not be saved. Please try again.", code: "PERSISTENCE_ERROR" };
       }
 
-      console.log("[presentation-upload] metadata persistence complete", {
-        submissionId,
-        fileName: safeName,
-        storagePath,
-        fileHash: fileHash.slice(0, 12),
-      });
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      console.error("[presentation-upload] unexpected error in storage/persistence", {
-        submissionId,
-        fileName: safeName,
-        storagePath,
-        reason,
-      });
-      return {
-        ok: false,
-        error: "The presentation file could not be processed. Please try again.",
-        code: "INTERNAL_ERROR",
-      };
+      return { ok: false, error: "The presentation file could not be processed. Please try again.", code: "INTERNAL_ERROR" };
     }
-
-    console.log("[presentation-upload] returning JSON-safe response", {
-      ok: true,
-      fileName: safeName,
-      storagePath,
-      fileHash: fileHash.slice(0, 12),
-      uploadedAt,
-    });
 
     return { ok: true, fileName: safeName, storagePath, fileHash, uploadedAt };
   });
